@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "normalized.observation.v1",
+  "type": "object",
+  "required": ["schemaVersion", "patientId", "code", "effectiveDateTime", "value", "unit", "sourceSystem", "ingestHash"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "patientId": { "type": "string" },
+    "code": { "type": "string" },
+    "effectiveDateTime": { "type": "string", "format": "date-time" },
+    "value": { "type": ["number", "string"] },
+    "unit": { "type": "string" },
+    "sourceSystem": { "type": "string" },
+    "ingestHash": { "type": "string" }
+  },
+  "additionalProperties": false
+}
