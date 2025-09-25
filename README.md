@@ -132,6 +132,211 @@ etl-healthcare/
 
 ---
 
+
+---
+
+## ⚡ Verify the Pipeline (end-to-end & step-by-ste)
+Assumes you’ve already done Quickstart (install, bootstrap, deploy).
+> **NOTE:** Shell examples use `fish` shell.
+> 
+**For bash users**:
+* Replace `set VAR value` with `VAR=value` (no `set`).
+* Command substitution: `(...)` → `$(...)`.
+* Loops use standard for syntax.
+### 1. Set context (region, profile)
+   ```bash
+     # Adjust to your AWS account/region
+     set -x AWS_REGION eu-central-1
+     # optional: set a profile if you use one
+     set -x AWS_PROFILE myprofile
+   ```
+
+### 2. Discover resource endpoints/ARNs
+We resolve stack outputs once and reuse them in commands.
+   ```fish
+   # Table
+set TBL etl-healthcare
+
+# Queues (from the "Messaging" / "Persist" stacks)
+set IQURL (aws cloudformation describe-stacks \
+  --stack-name EtL-Messaging \
+  --query "Stacks[0].Outputs[?OutputKey=='IngestQueueUrl'].OutputValue" \
+  --output text)
+
+set NQURL (aws cloudformation describe-stacks \
+  --stack-name EtL-Messaging \
+  --query "Stacks[0].Outputs[?OutputKey=='NormalizedQueueUrl'].OutputValue" \
+  --output text)
+
+set PQURL (aws cloudformation describe-stacks \
+  --stack-name EtL-Persist \
+  --query "Stacks[0].Outputs[?OutputKey=='PersistedQueueUrl'].OutputValue" \
+  --output text)
+
+# Persist Lambda name (for logs)
+set PFN (aws cloudformation describe-stacks \
+  --stack-name EtL-Persist \
+  --query "Stacks[0].Outputs[?OutputKey=='PersistFunctionName'].OutputValue" \
+  --output text)
+   ```
+  Bash equivalent (example):
+``` bash
+IQURL=$(aws cloudformation describe-stacks --stack-name EtL-Messaging \
+  --query "Stacks[0].Outputs[?OutputKey=='IngestQueueUrl'].OutputValue" --output text)
+```
+### 3. Tail the persist Lambda logs (CloudWatch)
+Keep this running in another terminal window so you can see logs and errors live.
+What you want to see: either clean “END/REPORT” with no errors or informative validation/idempotency messages.
+   ```fish
+aws logs tail "/aws/lambda/$PFN" --since 15m --follow
+   ```
+> NOTE: You may need to define PFN (Persist Function Name) variable again in the logging terminal aswell.
+### 4. Smoke test: ingest via HTTP
+> Sends a tiny JSON payload to the ingest endpoint, which should deposit raw into S3 and emit a normalized event.
+>
+> It confirms the HTTP path is alive, raw object is written, and a message gets queued for the transformer/normalizer.
+   ```fish
+# Ingest API base URL (from your stack output)
+set API (aws cloudformation describe-stacks \
+  --stack-name EtL-Ingest \
+  --query "Stacks[0].Outputs[?OutputKey=='IngestApiUrl'].OutputValue" \
+  --output text)
+
+# Send a sample
+set IDEMP check-001
+curl -sS -X POST "$API/ingest" \
+  -H "Content-Type: application/json" \
+  -d (jq -n --arg idk $IDEMP '{
+    metadata: { tenantId: "t1", source: "test", idempotencyKey: $idk },
+    payload: { studyInstanceUID: "1.2.3", patientId: "P001", modality: "MR" }
+  }') | jq
+   ```
+### 5. Did the normalized message land? (SQS peek)
+Expect to see `etl.normalized.v1` bodies. It verifies the Transform/Normalize stage produced the expected event shape.
+   ```fish
+# Ingest API base URL (from your stack output)
+set API (aws cloudformation describe-stacks \
+  --stack-name EtL-Ingest \
+  --query "Stacks[0].Outputs[?OutputKey=='IngestApiUrl'].OutputValue" \
+  --output text)
+
+# Send a sample
+set IDEMP check-001
+curl -sS -X POST "$API/ingest" \
+  -H "Content-Type: application/json" \
+  -d (jq -n --arg idk $IDEMP '{
+    metadata: { tenantId: "t1", source: "test", idempotencyKey: $idk },
+    payload: { studyInstanceUID: "1.2.3", patientId: "P001", modality: "MR" }
+  }') | jq
+   ```
+### 6. DynamoDB write checks
+We use the known keys from our conventions:
+`PK = TENANT#<tenantId>` and `SK = ENTITY#<type>#<id>`.
+ It confirms persistence is working, the single-table keys are correct, and version/idempotency attributes are being updated.
+   ```fish
+  # Build keys for our test entity
+set PK TENANT#t1
+set SK ENTITY#study#1.2.3
+
+# Read the row
+aws dynamodb get-item \
+  --table-name $TBL \
+  --key (printf '{"PK":{"S":"%s"},"SK":{"S":"%s"}}' $PK $SK) \
+  --output json | jq
+
+# Query by PK to see all items for tenant t1
+aws dynamodb query \
+  --table-name $TBL \
+  --key-condition-expression "PK = :pk" \
+  --expression-attribute-values '{":pk":{"S":"TENANT#t1"}}' \
+  --output json | jq '.Items | length'
+   ```
+### 7. Observe `etl.persisted.v1` events
+The persist service emits a “write confirmation” event for downstreams (audit, indexing, etc.).
+This is the contract you’d fan out to an audit or search microservice.
+  ``` fish
+     # How many persisted messages are waiting?
+aws sqs get-queue-attributes --queue-url $PQURL \
+  --attribute-names ApproximateNumberOfMessages | jq
+
+# Peek at a few messages (don’t delete yet)
+aws sqs receive-message --queue-url $PQURL \
+  --max-number-of-messages 5 --wait-time-seconds 10 --visibility-timeout 0 \
+  --message-attribute-names All | jq -r '.Messages[].Body' | jq
+  ```
+### 8. Read-and-remove a message (SQS hygiene)
+Useful when you want to drain a queue during testing.
+> ⚠️ If you don’t delete, messages become visible again after the visibility timeout.
+  ``` fish
+# Peek one; hide it 30s so we can delete by handle
+set MSG (aws sqs receive-message --queue-url $PQURL \
+  --max-number-of-messages 1 --wait-time-seconds 10 --visibility-timeout 30)
+
+# Show the body
+echo $MSG | jq -r '.Messages[0].Body' | jq
+
+# Delete it (only if you intend to consume it)
+set RH (echo $MSG | jq -r '.Messages[0].ReceiptHandle')
+test -n "$RH"; and aws sqs delete-message --queue-url $PQURL --receipt-handle "$RH"
+  ```
+### 9. Idempotency demo (no double-writes)
+Re-send the exact same `idempotencyKey`. The item’s version should **not** increment and the write path should be skipped or conditionally updated.
+It shows retries are safe and the pipeline won’t duplicate records.
+  ``` fish
+    # Send the exact same ingest payload again
+curl -sS -X POST "$API/ingest" \
+  -H "Content-Type: application/json" \
+  -d (jq -n --arg idk $IDEMP '{
+    metadata: { tenantId: "t1", source: "test", idempotencyKey: $idk },
+    payload: { studyInstanceUID: "1.2.3", patientId: "P001", modality: "MR" }
+  }') | jq
+
+# Re-read the item and check "version" hasn’t bumped unexpectedly
+aws dynamodb get-item \
+  --table-name $TBL \
+  --key (printf '{"PK":{"S":"%s"},"SK":{"S":"%s"}}' $PK $SK) \
+  --output json | jq '.Item.version // .Item.Version // empty'
+  ```
+
+### 10. Extra: sanity checks you’ll actually use
+  ``` fish
+# Which Lambda consumes the normalized queue?
+aws lambda list-event-source-mappings \
+  --function-name $PFN \
+  --query "EventSourceMappings[].{State:State,SourceArn:EventSourceArn,BatchSize:BatchSize}" \
+  --output table
+
+# Quick queue counts
+for Q in $IQURL $NQURL $PQURL
+    echo "Queue: $Q"
+    aws sqs get-queue-attributes --queue-url $Q \
+      --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+      --output json | jq
+end
+
+# Show last 20 persist Lambda errors (if any)
+aws logs filter-log-events \
+  --log-group-name "/aws/lambda/$PFN" \
+  --filter-pattern "ERROR" \
+  --limit 20 | jq -r '.events[].message'
+  ```
+
+### 11. Clean up (local queues while testing)
+If you’ve spammed test messages and want a clean slate:
+  ``` fish
+# Drain NQURL (normalized) safely — repeat an appropriate number of times or script it
+for i in (seq 1 10)
+    set BATCH (aws sqs receive-message --queue-url $NQURL \
+      --max-number-of-messages 10 --wait-time-seconds 2 --visibility-timeout 0)
+    for H in (echo $BATCH | jq -r '.Messages[]?.ReceiptHandle')
+        aws sqs delete-message --queue-url $NQURL --receipt-handle "$H"
+    end
+end
+
+  ```
+
+---
+
 ## 📜 Contracts
 
 All service communication uses versioned JSON Schema contracts.
