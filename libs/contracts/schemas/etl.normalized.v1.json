@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "etl-healthcare/etl.normalized.v1.json",
+  "title": "etl.normalized.v1",
+  "description": "Normalized record produced by Normalize service.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "metadata", "data"],
+  "properties": {
+    "schema": { "type": "string", "const": "etl.normalized.v1" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId", "normalizedAt", "idempotencyKey", "source", "traceId"],
+      "properties": {
+        "tenantId": { "type": "string" },
+        "source": { "type": "string" },
+        "normalizedAt": { "type": "string", "format": "date-time" },
+        "idempotencyKey": { "type": "string" },
+        "traceId": { "type": "string", "description": "Propagation id for observability." }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entityType", "entityId"],
+      "properties": {
+        "entityType": { "type": "string", "enum": ["study", "series", "instance", "patient", "encounter", "generic"] },
+        "entityId": { "type": "string", "minLength": 1 },
+        "patientId": { "type": "string" },
+        "encounterId": { "type": "string" },
+        "modality": { "type": "string" },
+        "attributes": {
+          "type": "object",
+          "description": "Flattened, mapped keys after normalization.",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}
