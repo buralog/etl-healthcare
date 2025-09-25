@@ -149,9 +149,9 @@ Schemas are stored locally in `libs/contracts/src` and synced to the Schema Regi
 
 - [x] Bootstrap repo with CDK & pnpm
 - [x] Deploy Storage + Data + Messaging stacks
-- [ ] Implement Ingest Lambda (API Gateway → S3 + SQS)
-- [ ] Add Normalization Lambda (validate → DTOs → SQS)
-- [ ] Add Persistence Lambda (idempotent DDB writes → event emit)
+- [x] Implement Ingest Lambda (API Gateway → S3 + SQS)
+- [x] Add Normalization Lambda (validate → DTOs → SQS)
+- [x] Add Persistence Lambda (idempotent DDB writes → event emit)
 - [ ] AppSync GraphQL API for queries
 - [ ] Alarms & Observability (CloudWatch)
 - [ ] Optional Search integration (OpenSearch)
