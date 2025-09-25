@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "etl-healthcare/etl.persisted.v1.json",
+  "title": "etl.persisted.v1",
+  "description": "Event emitted after DynamoDB persistence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "metadata", "record"],
+  "properties": {
+    "schema": { "type": "string", "const": "etl.persisted.v1" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId", "persistedAt", "traceId"],
+      "properties": {
+        "tenantId": { "type": "string" },
+        "persistedAt": { "type": "string", "format": "date-time" },
+        "traceId": { "type": "string" }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pk", "sk", "gsi1pk", "gsi1sk", "entityType", "entityId"],
+      "properties": {
+        "pk": { "type": "string" },
+        "sk": { "type": "string" },
+        "gsi1pk": { "type": "string" },
+        "gsi1sk": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "attributes": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}
