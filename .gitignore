@@ -16,3 +16,6 @@ cdk.context.json
 *.log
 
 .vscode/
+
+# CDK outputs
+outputs.json
