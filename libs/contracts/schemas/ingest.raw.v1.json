@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "etl-healthcare/ingest.raw.v1.json",
+  "title": "ingest.raw.v1",
+  "description": "Raw payload envelope as accepted by Ingest API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "metadata", "payload"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ingest.raw.v1"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId", "source", "ingestedAt", "idempotencyKey"],
+      "properties": {
+        "tenantId": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1, "description": "Origin system identifier (e.g., 'orthanc', 'dcm4chee', 'ehr-x')." },
+        "ingestedAt": { "type": "string", "format": "date-time" },
+        "idempotencyKey": { "type": "string", "minLength": 4, "description": "Client-provided dedupe key (hash of payload recommended)." },
+        "contentHash": { "type": "string", "minLength": 16, "description": "SHA-256 of payload bytes (optional but recommended)." }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "description": "Opaque raw data from source system.",
+      "minProperties": 1
+    }
+  },
+  "examples": [
+    {
+      "schema": "ingest.raw.v1",
+      "metadata": {
+        "tenantId": "tenant-123",
+        "source": "orthanc",
+        "ingestedAt": "2025-09-23T12:34:56Z",
+        "idempotencyKey": "abc123",
+        "contentHash": "e3b0c44298..."
+      },
+      "payload": { "studyInstanceUID": "1.2.3.4", "patientId": "P001" }
+    }
+  ]
+}
