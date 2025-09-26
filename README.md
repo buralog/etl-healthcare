@@ -3,13 +3,54 @@
 This project is a **serverless ETL pipeline** built on AWS and TypeScript.  
 It demonstrates how to ingest healthcare data (HL7, FHIR, CSV, JSON), normalize it into a clean model, persist it to DynamoDB, and expose query APIs — all while following **microservice-ready boundaries**.
 
-Designed to showcase:
-- Event-driven serverless architecture
-- Separation of concerns via contracts and events
-- Scalable data ingestion for healthcare use cases
-- Cloud-native best practices (least privilege IAM, DLQs, alarms)
 
----
+## 🌐 Overview
+
+This repo serves as a **reference implementation** of a cloud-native, event-driven healthcare data pipeline.  
+It is designed to highlight both *practical data processing* and *modern architectural principles*:
+
+- **Event-driven, serverless architecture** → decoupled stages using SQS, Lambda, and DynamoDB.  
+- **Separation of concerns via contracts and events** → schemas define exactly what each service consumes/produces.  
+- **Scalable ingestion** → flexible entry points (HL7, FHIR, CSV, JSON) that all normalize into a consistent model.  
+- **Cloud-native best practices** → least-privilege IAM, dead-letter queues, alarms, strong observability.  
+- **Monorepo-ready structure** → services are colocated now, but can be split into separate packages or repos later.  
+- **Independent deployability** → each stack (ingest, normalize, persist, query, etc.) can be deployed and evolved in isolation.  
+- **Developer-friendly DX** → built with AWS CDK in TypeScript for type safety, better tooling, and consistency.
+
+The goal: show how to build a **modular, production-ready ETL pipeline for healthcare data**, balancing **real-world data handling** with **clean architecture**.
+
+## Table of content
+
+<details>
+<summary>Expand contents</summary>
+
+- [Architecture Overview](#-architecture-overview)
+- [Repository Layout](#-repository-layout)
+- [Contracts](#-contracts)
+  - [Why we use contracts](#why-we-use-contracts)
+  - [Folder layout](#folder-layout)
+  - [Current contracts](#current-contracts)
+  - [Why this layout matters](#why-this-layout-matters)
+- [Quickstart](#-quickstart)
+- [Validate the Pipeline](#-validate-the-pipeline)
+  - [1. Set context (region, profile)](#1-set-context-region-profile)
+  - [2. Discover resource endpoints/ARNs](#2-discover-resource-endpointsarns)
+  - [3. Tail the persist Lambda logs (CloudWatch)](#3-tail-the-persist-lambda-logs-cloudwatch)
+  - [4. Smoke test: ingest via HTTP](#4-smoke-test-ingest-via-http)
+  - [5. Did the normalized message land? (SQS peek)](#5-did-the-normalized-message-land-sqs-peek)
+  - [6. DynamoDB write checks](#6-dynamodb-write-checks)
+  - [7. Observe etl.persisted.v1 events](#7-observe-etlpersistedv1-events)
+  - [8. Read-and-remove a message (SQS hygiene)](#8-read-and-remove-a-message-sqs-hygiene)
+  - [9. Idempotency demo (no double-writes)](#9-idempotency-demo-no-double-writes)
+  - [10. Query Layer: AppSync + Cognito (GraphQL)](#10-query-layer-appsync--cognito-graphql)
+    - [10.0 Stack deployment](#100-stack-deployment)
+    - [10.1 Create a test Cognito user](#101-create-a-test-cognito-user)
+    - [10.2 Authenticate and get a JWT token](#102-authenticate-and-get-a-jwt-token)
+    - [10.3 Send GraphQL queries](#103-send-graphql-queries)
+    - [10.4 Quick GraphQL smoke tests with Bruno API Client](#104-quick-graphql-smoke-tests-with-bruno-api-client)
+  - [11. Extra: sanity checks you’ll actually use](#11-extra-sanity-checks-youll-actually-use)
+  - [12. Clean up (local queues while testing)](#12-clean-up-local-queues-while-testing)
+</details>
 
 ## 🚀 Architecture Overview
 
@@ -23,32 +64,36 @@ Designed to showcase:
 ```
 
 **Service boundaries:**
-- **Ingest** → Accept raw payloads into S3, emit `ingest.raw.v1` events.  
-- **Normalize** → Validate & map to DTOs, emit `etl.normalized.v1`.  
-- **Persist** → Idempotently write to DynamoDB, emit `etl.persisted.v1`.  
-- **Query API** → GraphQL access to persisted data.  
-- **Audit/Search** (future) → S3 append-only logs, OpenSearch for queries.
 
----
+- **Ingest**  
+  Accepts raw payloads (HL7, FHIR, CSV, JSON) over HTTP.  
+  Stores a copy in S3 for audit/replay, and emits `ingest.raw.v1` events to the ingest queue.  
 
-## 🛠️ Tech Stack
+- **Normalize**  
+  Consumes raw events, validates against JSON Schemas, and maps into clean DTOs.  
+  Emits `etl.normalized.v1` messages that downstreams can rely on without parsing raw input.  
 
-- **Language:** TypeScript  
-- **Infrastructure as Code:** AWS CDK (v2)  
-- **Cloud Services:**  
-  - S3 (raw landing, audit, schema registry)  
-  - DynamoDB (single-table design with GSIs)  
-  - SQS (service-to-service messaging + DLQs)  
-  - AppSync (GraphQL API)  
-  - Lambda (per service logic)  
-- **Tooling:**  
-  - pnpm (workspace + package manager)  
-  - JSON Schema contracts (event and DTO validation)  
-  - GitHub for version control
+- **Persist**  
+  Idempotently writes normalized data to the DynamoDB single-table design.  
+  Emits `etl.persisted.v1` confirmations to guarantee safe retries and downstream notifications.  
 
----
+- **Query API**  
+  GraphQL API (AppSync + Cognito auth) that exposes persisted data.  
+  Uses dedicated GSIs to serve patient timelines, lookups, and latest observations.  
+
+- **Audit / Search**  
+  Every persisted event can also be appended to an S3 log bucket or indexed into OpenSearch.  
+  This creates a **composable event log** for compliance, analytics, or ML enrichment.
+
+**Why this separation matters:**  
+- Each stage is independently testable and replaceable.  
+- Failures are isolated (e.g., normalization bugs don’t break ingestion).  
+- Reprocessing is possible (e.g., replay from S3 if mappings change).  
+- Contracts (JSON Schemas) ensure services evolve safely without breaking each other.
 
 ## 📂 Repository Layout
+<details>
+     <summary>View the repo layout</summary>
 
 ```
 etl-healthcare/
@@ -100,9 +145,82 @@ etl-healthcare/
 # ├── cdk.out/                   # CDK synthesis output (gitignored)
 # ├── dist/                      # Compiled TypeScript (gitignored)  
 # └── node_modules/              # Dependencies (gitignored)
+```     
+</details>
+
+
+## 📜 Contracts
+
+In this project, **contracts** are **formal JSON Schemas** that define the structure of messages exchanged between pipeline stages.  
+Instead of sending ad-hoc JSON, we enforce strict contracts so every service knows exactly what to expect.
+
+#### Why we use contracts
+
+- **Consistency** – the same event type always has the same shape.  
+- **Validation** – payloads can be checked against a schema before being processed.  
+- **Versioning** – breaking changes go into a new schema (`.v2.json`), so old services continue working.  
+- **Type safety** – schemas are compiled into `.d.ts` definitions for TypeScript services.  
+- **Compliance** – in healthcare, strict schemas reduce risk of malformed or incomplete records.
+
+
+#### Folder layout
+
+```
+libs/contracts
+├── schemas/              # Raw JSON Schemas (registry-ready)
+│   ├── etl.normalized.v1.json
+│   ├── etl.persisted.v1.json
+│   └── ingest.raw.v1.json
+└── src/
+    ├── dto/              # DTO-level schemas for sub-entities
+    │   ├── normalized.observation.v1.json
+    │   └── normalized.patient.v1.json
+    ├── events/           # Event-level schemas (mirrors /schemas)
+    │   ├── etl.normalized.v1.json
+    │   ├── etl.persisted.v1.json
+    │   └── ingest.raw.v1.json
+    ├── types.ts          # Generated TypeScript types
+    │   ├── etl.normalized.v1.d.ts
+    │   ├── etl.persisted.v1.d.ts
+    │   └── ingest.raw.v1.d.ts
+    └── validate.ts       # Shared validation helpers
 ```
 
----
+- **`schemas/`** → canonical JSON Schemas (synced to the Schema Registry S3 bucket).  
+- **`src/events/`** → same schemas colocated with code for runtime use.  
+- **`src/dto/`** → smaller sub-schemas (patients, observations) that plug into larger contracts.  
+- **`src/types.ts`** → TypeScript bindings auto-generated from schemas for type-safe coding.  
+- **`src/validate.ts`** → utility functions to validate payloads against the right schema.
+
+#### Current Contracts
+
+- **`ingest.raw.v1.json`**  
+  Shape of raw payloads ingested via the HTTP API. Contains standard metadata (tenant, source, idempotency key) + raw payload.
+
+- **`etl.normalized.v1.json`**  
+  Canonical normalized shape emitted by the Normalizer. Guarantees all downstream services see a unified event format.
+
+- **`etl.persisted.v1.json`**  
+  Emitted after a successful DynamoDB write. Serves as a commit log for auditing or fanning out to other services.
+
+- **`normalized.observation.v1.json`**  
+  Defines the structure of normalized **Observation** entities (labs, vitals, etc).
+
+- **`normalized.patient.v1.json`**  
+  Defines the structure of normalized **Patient** entities (IDs, demographics).
+
+
+#### Why this layout matters
+
+This split ensures we get the best of both worlds:
+
+- **Registry & sharing** → top-level `/schemas` is easy to sync to S3 or publish.  
+- **Runtime & dev tooling** → `/src` gives validators and TypeScript types directly to services.  
+- **Fine-grained reuse** → DTO schemas (patients, observations) can be embedded across multiple event schemas.
+
+The result: every stage in the ETL pipeline has **clear, enforceable contracts** for what it consumes and produces.  
+That makes the system modular, testable, and safer to evolve over time.
+
 
 ## ⚡ Quickstart
 
@@ -130,12 +248,7 @@ etl-healthcare/
    aws dynamodb list-tables
    ```
 
----
-
-
----
-
-## ⚡ Verify the Pipeline (end-to-end & step-by-ste)
+## ⚡ Validate the Pipeline
 Assumes you’ve already done Quickstart (install, bootstrap, deploy).
 > **NOTE:** Shell examples use `fish` shell.
 > 
@@ -190,7 +303,7 @@ What you want to see: either clean “END/REPORT” with no errors or informativ
    ```fish
 aws logs tail "/aws/lambda/$PFN" --since 15m --follow
    ```
-> NOTE: You may need to define PFN (Persist Function Name) variable again in the logging terminal aswell.
+> NOTE: You may need to define PFN (Persist Function Name) variable again in the logging terminal as well.
 ### 4. Smoke test: ingest via HTTP
 > Sends a tiny JSON payload to the ingest endpoint, which should deposit raw into S3 and emit a normalized event.
 >
@@ -298,7 +411,183 @@ aws dynamodb get-item \
   --output json | jq '.Item.version // .Item.Version // empty'
   ```
 
-### 10. Extra: sanity checks you’ll actually use
+### 10. Query Layer: AppSync + Cognito (GraphQL)
+At this stage we expose the pipeline via a secure GraphQL API.  
+- **AppSync + Cognito** provides a tenant-aware query layer on top of DynamoDB, ensuring only authenticated users with the right tenant claim can read their data.
+- Proves the pipeline is not only ingesting → normalizing → persisting, but also **securely queryable** by consumers.
+
+#### 10.0 Stack deployment
+Deploy the AppSync stack:
+
+```bash
+cdk deploy EtL-AppSync --require-approval never
+```
+
+Retrieve stack outputs (GraphQL endpoint + Cognito info):
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name EtL-AppSync \
+  --query "Stacks[0].Outputs" \
+  --output table
+```
+
+You should see:
+- `GraphQLEndpoint` → the URL for GraphQL queries
+- `UserPoolId` → Cognito user pool ID
+- `UserPoolClientId` → Cognito client app ID
+
+Optionally store the endpoint in an env var:
+
+```fish
+set -x GRAPHQL_ENDPOINT (aws cloudformation describe-stacks \
+  --stack-name EtL-AppSync \
+  --query "Stacks[0].Outputs[?OutputKey=='GraphQLEndpoint'].OutputValue" \
+  --output text)
+```
+
+#### 10.1 Create a test Cognito user
+Because we disabled public signup, create users via CLI and attach a tenant claim.
+
+```fish
+# Variables
+set -x USER_POOL_ID "<your UserPoolId>"
+set -x USER_POOL_CLIENT_ID "<your UserPoolClientId>"
+set -x REGION "eu-central-1"
+set -x TEST_EMAIL "tester@example.com"
+set -x TEST_PASS "TestPassw0rd!123"
+set -x TENANT_ID "t_demo"
+
+# 1) Create user
+aws cognito-idp admin-create-user \
+  --region $REGION \
+  --user-pool-id $USER_POOL_ID \
+  --username $TEST_EMAIL \
+  --user-attributes Name=email,Value=$TEST_EMAIL Name=email_verified,Value=true
+
+# 2) Set permanent password
+aws cognito-idp admin-set-user-password \
+  --region $REGION \
+  --user-pool-id $USER_POOL_ID \
+  --username $TEST_EMAIL \
+  --password $TEST_PASS \
+  --permanent
+
+# 3) Add tenant claim
+aws cognito-idp admin-update-user-attributes \
+  --region $REGION \
+  --user-pool-id $USER_POOL_ID \
+  --username $TEST_EMAIL \
+  --user-attributes Name=custom:tenantId,Value=$TENANT_ID
+```
+
+Now you have a Cognito user with:
+- email login
+- permanent password
+- `custom:tenantId = t_demo`
+
+
+#### 10.2 Authenticate and get a JWT token
+Authenticate to obtain a **JWT IdToken** for calling AppSync.
+
+```bash
+aws cognito-idp initiate-auth \
+  --region $REGION \
+  --client-id $USER_POOL_CLIENT_ID \
+  --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=$TEST_EMAIL,PASSWORD=$TEST_PASS \
+  --query 'AuthenticationResult.IdToken' \
+  --output text
+```
+
+Save the returned token as an env var (optional):
+
+```fish
+set -x JWT (aws cognito-idp initiate-auth \
+  --region $REGION \
+  --client-id $USER_POOL_CLIENT_ID \
+  --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=$TEST_EMAIL,PASSWORD=$TEST_PASS \
+  --query 'AuthenticationResult.IdToken' \
+  --output text)
+```
+
+#### 10.3 Send GraphQL queries
+Use any API client (curl, Bruno, Postman).  
+**Authorization** must be set to `Bearer <IdToken>`.
+
+##### **Get patient metadata**
+```bash
+curl -s "$GRAPHQL_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT" \
+  -d '{"query":"query { getPatient(id: \"p-123\") { id tenantId name birthDate lastUpdated } }"}' | jq
+```
+
+##### **Observations by patient (JSON body)**
+```json
+{
+  "query": "query { observationsByPatient(patientId: \"p-123\", limit: 5) { items { id code value unit effective } nextToken } }"
+}
+```
+
+##### **Latest observation (JSON body)**
+```json
+{
+  "query": "query { latestObservation(patientId: \"p-123\", code: \"heart-rate\") { id code value unit effective } }"
+}
+```
+
+If seeded data exists, `getPatient` may return:
+```json
+{
+  "data": {
+    "getPatient": {
+      "id": "p-123",
+      "tenantId": "t_demo",
+      "name": "Alice Smith",
+      "birthDate": "1985-06-15",
+      "lastUpdated": "2025-09-26T15:00:00Z"
+    }
+  }
+}
+```
+
+> Tip: You can also use **variables** to avoid escaping:
+> ```json
+> {
+>   "query": "query Obs($pid: ID!, $limit: Int) { observationsByPatient(patientId: $pid, limit: $limit) { items { id code value unit effective } nextToken } }",
+>   "variables": { "pid": "p-123", "limit": 5 }
+> }
+> ```
+
+#### 10.4 Quick GraphQL smoke tests with Bruno API Client
+Instead of raw `curl`, use [Bruno](https://www.usebruno.com/) (or Postman) to run ready-made GraphQL queries.
+
+1. **Import the collection**  
+   Add `./bruno/etl-healthcare-tests.json` (included in the repo).  
+   It contains requests for:
+   - `getPatient`
+   - `observationsByPatient`
+   - `latestObservation`
+
+2. **Set environment values**
+   - `graphql_endpoint` → from CDK outputs:
+     ```bash
+     aws cloudformation describe-stacks \
+       --stack-name EtL-AppSync \
+       --query "Stacks[0].Outputs[?OutputKey=='GraphQLEndpoint'].OutputValue" \
+       --output text
+     ```
+   - `jwt_token` → the IdToken you obtained in **12.2**.
+
+3. **Run the queries**  
+   - ✅ `getPatient(id: "p-123")` → patient metadata  
+   - ✅ `observationsByPatient(patientId: "p-123", limit: 5)` → list with pagination support  
+   - ✅ `latestObservation(patientId: "p-123", code: "heart-rate")` → the newest observation for the code
+
+
+### 11. Extra: sanity checks you’ll actually use
   ``` fish
 # Which Lambda consumes the normalized queue?
 aws lambda list-event-source-mappings \
@@ -321,7 +610,7 @@ aws logs filter-log-events \
   --limit 20 | jq -r '.events[].message'
   ```
 
-### 11. Clean up (local queues while testing)
+### 12. Clean up (local queues while testing)
 If you’ve spammed test messages and want a clean slate:
   ``` fish
 # Drain NQURL (normalized) safely — repeat an appropriate number of times or script it
@@ -335,21 +624,6 @@ end
 
   ```
 
----
-
-## 📜 Contracts
-
-All service communication uses versioned JSON Schema contracts.
-Schemas are stored locally in `libs/contracts/src` and synced to the Schema Registry S3 bucket.
-
-- `ingest.raw.v1.json`
-- `etl.normalized.v1.json`
-- `etl.persisted.v1.json`
-- `normalized.observation.v1.json`
-- `normalized.patient.v1.json`
-
----
-
 ## ✅ Roadmap
 
 - [x] Bootstrap repo with CDK & pnpm
@@ -357,14 +631,6 @@ Schemas are stored locally in `libs/contracts/src` and synced to the Schema Regi
 - [x] Implement Ingest Lambda (API Gateway → S3 + SQS)
 - [x] Add Normalization Lambda (validate → DTOs → SQS)
 - [x] Add Persistence Lambda (idempotent DDB writes → event emit)
-- [ ] AppSync GraphQL API for queries
+- [x] AppSync GraphQL API for queries
 - [ ] Alarms & Observability (CloudWatch)
 - [ ] Optional Search integration (OpenSearch)
-
----
-
-## 📖 Notes
-
-- This repo is structured to be monorepo-ready. Each service can later be split into its own package or repo if needed.
-- Follows serverless microservice principles: clear ownership, event contracts, least privilege, independent deployability.
-- Uses AWS CDK for infrastructure as code with TypeScript for type safety and better developer experience.
