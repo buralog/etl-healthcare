@@ -1,0 +1,42 @@
+schema {
+  query: Query
+}
+
+scalar AWSDate
+scalar AWSDateTime
+
+type Patient {
+  id: ID!
+  tenantId: String!
+  name: String
+  birthDate: AWSDate
+  lastUpdated: AWSDateTime
+}
+
+type Observation {
+  id: ID!
+  tenantId: String!
+  patientId: ID!
+  code: String!
+  value: String
+  unit: String
+  effective: AWSDateTime
+}
+
+type ObservationConnection {
+  items: [Observation!]!
+  nextToken: String
+}
+
+type Query {
+  getPatient(id: ID!): Patient
+  observationsByPatient(
+    patientId: ID!
+    code: String
+    from: AWSDateTime
+    to: AWSDateTime
+    limit: Int
+    nextToken: String
+  ): ObservationConnection
+  latestObservation(patientId: ID!, code: String!): Observation
+}

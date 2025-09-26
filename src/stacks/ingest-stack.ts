@@ -42,7 +42,7 @@ export class IngestStack extends Stack {
     // Permissions
     props.rawBucket.grantPut(fn);
     props.ingestQueue.grantSendMessages(fn);
-    props.kmsKey?.grantEncrypt(fn); // if your bucket is KMS-encrypted (yours is)
+    props.kmsKey?.grantEncrypt(fn); // if your bucket is KMS-encrypted
     
     const api = new apigwv2.HttpApi(this, "IngestApi", { apiName: "etl-ingest-api" });
     api.addRoutes({

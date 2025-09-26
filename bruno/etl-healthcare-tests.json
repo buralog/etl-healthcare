@@ -1,0 +1,59 @@
+{
+  "info": {
+    "name": "ETL Healthcare – GraphQL Smoke Tests",
+    "_postman_id": "8f8b6cc1-0000-4000-a000-000000000001",
+    "description": "AppSync GraphQL smoke tests with Cognito Bearer token",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Patient",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwt_token}}" }
+        ],
+        "url": { "raw": "{{graphql_endpoint}}", "host": ["{{graphql_endpoint}}"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"query Get($id: ID!) { getPatient(id: $id) { id tenantId name birthDate lastUpdated } }\",\n  \"variables\": { \"id\": \"p-123\" }\n}"
+        }
+      }
+    },
+    {
+      "name": "Observations By Patient",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwt_token}}" }
+        ],
+        "url": { "raw": "{{graphql_endpoint}}", "host": ["{{graphql_endpoint}}"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"query Obs($pid: ID!, $limit: Int) { observationsByPatient(patientId: $pid, limit: $limit) { items { id code value unit effective } nextToken } }\",\n  \"variables\": { \"pid\": \"p-123\", \"limit\": 5 }\n}"
+        }
+      }
+    },
+    {
+      "name": "Latest Observation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwt_token}}" }
+        ],
+        "url": { "raw": "{{graphql_endpoint}}", "host": ["{{graphql_endpoint}}"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"query Latest($pid: ID!, $code: String!) { latestObservation(patientId: $pid, code: $code) { id code value unit effective } }\",\n  \"variables\": { \"pid\": \"p-123\", \"code\": \"heart-rate\" }\n}"
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "graphql_endpoint", "value": "" },
+    { "key": "jwt_token", "value": "" }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@etl/api-query",
+  "version": "0.1.0",
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.637.0",
+    "@aws-sdk/lib-dynamodb": "^3.637.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
