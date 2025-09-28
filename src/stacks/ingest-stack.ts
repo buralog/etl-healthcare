@@ -13,6 +13,7 @@ interface IngestStackProps extends StackProps {
   rawBucket: s3.IBucket;
   ingestQueue: sqs.IQueue;
   kmsKey?: kms.IKey;
+  auditFn?: lambda.IFunction;
 }
 
 export class IngestStack extends Stack {
@@ -30,6 +31,7 @@ export class IngestStack extends Stack {
       environment: {
         RAW_BUCKET: props.rawBucket.bucketName,
         INGEST_QUEUE_URL: props.ingestQueue.queueUrl,
+        ...(props.auditFn ? { AUDIT_FN_ARN: props.auditFn.functionArn } : {}),
       },
       bundling: {
         externalModules: ["aws-sdk"], // leave v2 external; we use v3 clients which get bundled
@@ -43,7 +45,12 @@ export class IngestStack extends Stack {
     props.rawBucket.grantPut(fn);
     props.ingestQueue.grantSendMessages(fn);
     props.kmsKey?.grantEncrypt(fn); // if your bucket is KMS-encrypted
-    
+
+    // Permit invoke if provided
+    if (props.auditFn) {
+      props.auditFn.grantInvoke(fn);
+    }
+
     const api = new apigwv2.HttpApi(this, "IngestApi", { apiName: "etl-ingest-api" });
     api.addRoutes({
       path: "/ingest",

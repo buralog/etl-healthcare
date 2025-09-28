@@ -21,6 +21,7 @@ export interface EtlPersistedV1 {
     gsi1pk: string;
     gsi1sk: string;
     entityType: string;
+    version?: string;
     entityId: string;
     attributes?: {
       [k: string]: unknown;

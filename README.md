@@ -130,7 +130,7 @@ etl-healthcare/
 │       ├── appsync-stack.ts      # GraphQL API, resolvers
 │       ├── auth-stack.ts         # Cognito, IAM roles
 │       ├── data-stack.ts         # DynamoDB tables, GSIs
-│       ├── etl-stack.ts          # Lambda functions, Step Functions
+│       ├── audit-stack.ts        # Lambda functions, Step Functions
 │       ├── messaging-stack.ts    # SQS queues, SNS topics
 │       └── storage-stack.ts      # S3 buckets, KMS keys
 ├── cdk.json                      # CDK configuration

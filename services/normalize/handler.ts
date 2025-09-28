@@ -1,10 +1,10 @@
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { SQSEvent, SQSRecord } from "aws-lambda";
-import { validate } from "../../libs/contracts/src/validate";
 
+import { validate } from "../../libs/contracts/src/validate";
+import { auditFireAndForget } from "../../libs/obs/audit";
 import type { IngestRawV1 } from "../../libs/contracts/src/types.ts/ingest.raw.v1";
 import type { EtlNormalizedV1 } from "../../libs/contracts/src/types.ts/etl.normalized.v1";
-
 
 const sqs = new SQSClient({});
 const NORMALIZED_QUEUE_URL = process.env.NORMALIZED_QUEUE_URL!;
@@ -34,7 +34,6 @@ function toNormalized(msg: IngestRawV1): EtlNormalizedV1 {
 }
 
 function cryptoRandom() {
-  // short trace id
   return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
 }
 
@@ -44,7 +43,6 @@ export async function main(event: SQSEvent) {
   await Promise.all(event.Records.map(async (rec: SQSRecord) => {
     try {
       const body = JSON.parse(rec.body);
-      // validate ingest event
       validate<IngestRawV1>("ingest.raw.v1", body);
 
       // transform
@@ -60,12 +58,23 @@ export async function main(event: SQSEvent) {
           tenantId: { DataType: "String", StringValue: body.metadata.tenantId },
         },
       }));
+
+      // 🔹 Fire-and-forget AuditFn (lean payload)
+      await auditFireAndForget({
+        type: "etl.normalized.v1",
+        tenantId: normalized.metadata.tenantId,
+        traceId: normalized.metadata.traceId,
+        object: {
+          entityType: normalized.data.entityType,
+          entityId: normalized.data.entityId,
+        },
+      });
+
     } catch (err) {
       console.error("Normalize error for messageId", rec.messageId, err);
       failures.push({ itemIdentifier: rec.messageId });
     }
   }));
 
-  // Partial batch failure response (Lambda will only retry failed ones)
   return { batchItemFailures: failures };
 }

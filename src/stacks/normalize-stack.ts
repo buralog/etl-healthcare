@@ -9,6 +9,7 @@ import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 interface NormalizeStackProps extends StackProps {
   ingestQueue: sqs.IQueue;
   normalizedQueue: sqs.IQueue;
+  auditFn?: lambda.IFunction;
 }
 
 export class NormalizeStack extends Stack {
@@ -34,6 +35,7 @@ export class NormalizeStack extends Stack {
       },
       environment: {
         NORMALIZED_QUEUE_URL: props.normalizedQueue.queueUrl,
+        ...(props.auditFn ? { AUDIT_FN_ARN: props.auditFn.functionArn } : {}),
       },
     });
 
@@ -46,5 +48,10 @@ export class NormalizeStack extends Stack {
 
     // Permissions to publish normalized events
     props.normalizedQueue.grantSendMessages(fn);
+
+    // Permit invoke if provided
+    if (props.auditFn) {
+      props.auditFn.grantInvoke(fn);
+    }
   }
 }

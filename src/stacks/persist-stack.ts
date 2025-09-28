@@ -11,6 +11,7 @@ interface PersistStackProps extends StackProps {
   normalizedQueue: sqs.IQueue;
   persistedQueue: sqs.IQueue;
   table: dynamodb.ITable;
+  auditFn?: lambda.IFunction;
 }
 
 export class PersistStack extends Stack {
@@ -37,6 +38,7 @@ export class PersistStack extends Stack {
       environment: {
         TABLE_NAME: props.table.tableName,
         PERSISTED_QUEUE_URL: props.persistedQueue.queueUrl,
+        ...(props.auditFn ? { AUDIT_FN_ARN: props.auditFn.functionArn } : {}),
       },
     });
 
@@ -50,5 +52,10 @@ export class PersistStack extends Stack {
     // Least-privilege
     props.table.grantReadWriteData(fn);
     props.persistedQueue.grantSendMessages(fn);
+
+    // Permit invoke if provided
+    if (props.auditFn) {
+      props.auditFn.grantInvoke(fn);
+    }
   }
 }
