@@ -1,8 +1,7 @@
-// REMOVE this:
-// import { v4 as uuid } from "uuid";
 import { randomUUID, createHash } from "crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { auditFireAndForget } from "../../libs/obs/audit";
 
 const s3 = new S3Client({});
 const sqs = new SQSClient({});
@@ -15,7 +14,7 @@ export async function main(event: any) {
     const body = JSON.parse(event.body ?? "{}");
 
     // Compute IDs
-    const id = randomUUID(); // <-- use built-in
+    const id = randomUUID();
     const tenantId = body?.metadata?.tenantId ?? "unknown";
     const today = new Date().toISOString().slice(0, 10);
     const key = `raw/${tenantId}/${today}/${id}.json`;
@@ -32,7 +31,7 @@ export async function main(event: any) {
       Metadata: { contentHash },
     }));
 
-    // Publish to SQS
+    // Build envelope for pipeline
     const message = {
       schema: "ingest.raw.v1",
       metadata: {
@@ -45,10 +44,20 @@ export async function main(event: any) {
       payload: body.payload ?? body,
     };
 
+    // Publish to SQS
     await sqs.send(new SendMessageCommand({
       QueueUrl: INGEST_QUEUE_URL,
       MessageBody: JSON.stringify(message),
     }));
+
+    await auditFireAndForget({
+      type: "ingest.raw.v1",
+      tenantId,
+      ingestId: id,
+      s3: { bucket: RAW_BUCKET, key },
+      traceId: id,
+      payload: message.payload,
+    });
 
     return { statusCode: 202, body: JSON.stringify({ ok: true, key, message }) };
   } catch (err) {
@@ -56,3 +65,4 @@ export async function main(event: any) {
     return { statusCode: 500, body: JSON.stringify({ error: "Internal Error" }) };
   }
 }
+

@@ -22,7 +22,6 @@ export class AppSyncStack extends Stack {
         selfSignUpEnabled: false,
         signInAliases: { email: true },
         removalPolicy: RemovalPolicy.DESTROY, // dev
-        // ✅ define custom attribute here
         customAttributes: {
           tenantId: new cognito.StringAttribute({ mutable: true }),
         },

@@ -8,6 +8,8 @@ import { AlarmsStack } from '../stacks/alarms-stack';
 import { IngestStack } from '../stacks/ingest-stack';
 import { NormalizeStack } from '../stacks/normalize-stack';
 import { PersistStack } from '../stacks/persist-stack';
+import { AuditStack } from '../stacks/audit-stack';
+import { ReprocessStack } from '../stacks/reprocess-stack';
 
 const app = new cdk.App();
 
@@ -16,31 +18,31 @@ const env = {
     region: process.env.CDK_DEFAULT_REGION || 'eu-central-1',
 };
 
-// Foundations
+// ── Foundations
 const auth = new AuthStack(app, 'EtL-Auth', { env });
 const data = new DataStack(app, 'EtL-Data', { env });
 const storage = new StorageStack(app, 'EtL-Storage', { env });
 const messaging = new MessagingStack(app, 'EtL-Messaging', { env });
 
-// Query API (single instance)
-const appsync = new AppSyncStack(app, 'EtL-AppSync', {
+// ── Audit (shared function)
+const audit = new AuditStack(app, 'EtL-Audit', {
     env,
-    table: data.table, // cross-stack reference
-    // If your AppSyncStack expects an existing User Pool, pass it here too:
-    // userPool: auth.userPool,
+    auditBucket: storage.auditBucket,
 });
 
-// ETL stages (split)
+// ── ETL stages
 const ingest = new IngestStack(app, 'EtL-Ingest', {
     env,
     rawBucket: storage.rawLanding,
     ingestQueue: messaging.ingestQueue,
+    auditFn: audit.auditFn,
 });
 
 const normalize = new NormalizeStack(app, 'EtL-Normalize', {
     env,
     ingestQueue: messaging.ingestQueue,
     normalizedQueue: messaging.normalizedQueue,
+    auditFn: audit.auditFn,
 });
 
 const persist = new PersistStack(app, 'EtL-Persist', {
@@ -48,26 +50,48 @@ const persist = new PersistStack(app, 'EtL-Persist', {
     normalizedQueue: messaging.normalizedQueue,
     persistedQueue: messaging.persistedQueue,
     table: data.table,
+    auditFn: audit.auditFn,
 });
 
-// Alarms (point them at messaging/appsync/etc. inside the stack)
+// ── Query API
+const appsync = new AppSyncStack(app, 'EtL-AppSync', {
+    env,
+    table: data.table,
+    // Pass userPool if you want to reuse Auth’s pool instead of creating a new one:
+    // userPool: auth.userPool,
+});
+
+const reprocess = new ReprocessStack(app, 'EtL-Reprocess', {
+  env,
+  rawBucket: storage.rawLanding,
+  ingestQueue: messaging.ingestQueue,
+});
+
+// ── Alarms (watch everything)
 const alarms = new AlarmsStack(app, 'EtL-Alarms', { env });
 
-// Optional explicit ordering (only if no props cross-reference)
+// ── Explicit dependencies (only where not inferred by props):
+audit.addDependency(storage);     // audit needs the audit bucket
+
 ingest.addDependency(storage);
 ingest.addDependency(messaging);
 
-normalize.addDependency(messaging);
+normalize.addDependency(messaging); // uses queues
 
-persist.addDependency(messaging);
 persist.addDependency(data);
+persist.addDependency(messaging);
 
 appsync.addDependency(data);
-// If AppSyncStack consumes Auth resources via props, CDK will infer deps; if not, you can still declare:
-appsync.addDependency(auth);
+appsync.addDependency(auth);       // if using Auth’s user pool (or keep even if not)
 
-// Alarms usually depend on the things they watch:
+
+reprocess.addDependency(storage);
+reprocess.addDependency(messaging);
+
+// Alarms depend on resources they observe
 alarms.addDependency(appsync);
 alarms.addDependency(messaging);
 alarms.addDependency(persist);
 alarms.addDependency(data);
+alarms.addDependency(storage);
+alarms.addDependency(reprocess);

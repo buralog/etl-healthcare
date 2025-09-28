@@ -8,6 +8,7 @@ export class StorageStack extends Stack {
   public readonly rawLanding: s3.Bucket;
   public readonly schemaRegistry: s3.Bucket;
   public readonly storageKey: kms.Key;
+  public readonly auditBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
@@ -45,6 +46,14 @@ export class StorageStack extends Stack {
       autoDeleteObjects: true
     });
 
+    // Audit bucket
+    this.auditBucket = new s3.Bucket(this, 'AuditBucket', {
+      bucketName: `${Stack.of(this).stackName.toLowerCase()}-audit-${this.account}-${this.region}`.slice(0, 63),
+      encryptionKey: this.storageKey,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true
+    })
+
     // Lifecycle (optional): expire incomplete uploads
     this.rawLanding.addLifecycleRule({
       abortIncompleteMultipartUploadAfter: Duration.days(7)
@@ -52,6 +61,7 @@ export class StorageStack extends Stack {
 
     // Outputs
     new CfnOutput(this, "RawLandingBucketName", { value: this.rawLanding.bucketName });
+    new CfnOutput(this, 'AuditBucketName', { value: this.auditBucket.bucketName });
     new CfnOutput(this, "SchemaRegistryBucketName", { value: this.schemaRegistry.bucketName });
     new CfnOutput(this, "StorageKeyArn", { value: this.storageKey.keyArn });
 

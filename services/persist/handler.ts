@@ -4,6 +4,7 @@ import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { SQSEvent, SQSRecord } from "aws-lambda";
 
 import { validate } from "../../libs/contracts/src/validate";
+import { auditFireAndForget } from "../../libs/obs/audit";
 import type { EtlNormalizedV1 } from "../../libs/contracts/src/types.ts/etl.normalized.v1";
 import type { EtlPersistedV1 } from "../../libs/contracts/src/types.ts/etl.persisted.v1";
 
@@ -23,7 +24,6 @@ function keys(n: EtlNormalizedV1) {
     return { PK, SK, GSI1PK, GSI1SK };
 }
 
-
 export async function main(event: SQSEvent) {
     const failures: Array<{ itemIdentifier: string }> = [];
 
@@ -33,11 +33,10 @@ export async function main(event: SQSEvent) {
             validate<EtlNormalizedV1>("etl.normalized.v1", body);
             const { PK, SK, GSI1PK, GSI1SK } = keys(body);
 
-            // Idempotent upsert: allow write if idempotencyKey missing or same value
             const now = new Date().toISOString();
             const update = new UpdateCommand({
                 TableName: TABLE_NAME,
-                Key: { PK, SK },  // <-- uppercase
+                Key: { PK, SK },
                 UpdateExpression: [
                     "SET #et = :et",
                     "#eid = :eid",
@@ -57,7 +56,7 @@ export async function main(event: SQSEvent) {
                     "#tenantId": "tenantId",
                     "#updatedAt": "updatedAt",
                     "#idk": "idempotencyKey",
-                    "#g1pk": "GSI1PK",      // <-- uppercase attribute names
+                    "#g1pk": "GSI1PK",
                     "#g1sk": "GSI1SK",
                     "#ver": "version",
                 },
@@ -66,7 +65,7 @@ export async function main(event: SQSEvent) {
                     ":eid": String(body.data.entityId),
                     ":attrs": body.data.attributes ?? {},
                     ":tenantId": body.metadata.tenantId,
-                    ":now": new Date().toISOString(),
+                    ":now": now,
                     ":idk": body.metadata.idempotencyKey,
                     ":g1pk": GSI1PK,
                     ":g1sk": GSI1SK,
@@ -77,12 +76,13 @@ export async function main(event: SQSEvent) {
             });
 
             const result = await ddb.send(update);
+            const version = (result as any)?.Attributes?.version ?? undefined;
 
             const persisted: EtlPersistedV1 = {
                 schema: "etl.persisted.v1",
                 metadata: {
                     tenantId: body.metadata.tenantId,
-                    persistedAt: new Date().toISOString(),
+                    persistedAt: now,
                     traceId: body.metadata.idempotencyKey,
                 },
                 record: {
@@ -93,10 +93,11 @@ export async function main(event: SQSEvent) {
                     entityType: body.data.entityType,
                     entityId: String(body.data.entityId),
                     attributes: body.data.attributes ?? {},
+                    version, // optional
                 },
             };
 
-            // Publish
+            // Publish persisted event
             await sqs.send(new SendMessageCommand({
                 QueueUrl: PERSISTED_QUEUE_URL,
                 MessageBody: JSON.stringify(persisted),
@@ -105,6 +106,15 @@ export async function main(event: SQSEvent) {
                     tenantId: { DataType: "String", StringValue: body.metadata.tenantId },
                 },
             }));
+
+            // 🔹 Fire-and-forget AuditFn (lean payload)
+            await auditFireAndForget({
+                type: "etl.persisted.v1",
+                tenantId: body.metadata.tenantId,
+                traceId: body.metadata.idempotencyKey,
+                ddb: { pk: PK, sk: SK, version },
+            });
+
         } catch (err) {
             console.error("Persist error for messageId", rec.messageId, err);
             failures.push({ itemIdentifier: rec.messageId });
