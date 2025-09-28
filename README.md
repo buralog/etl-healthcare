@@ -586,8 +586,111 @@ Instead of raw `curl`, use [Bruno](https://www.usebruno.com/) (or Postman) to ru
    - ✅ `observationsByPatient(patientId: "p-123", limit: 5)` → list with pagination support  
    - ✅ `latestObservation(patientId: "p-123", code: "heart-rate")` → the newest observation for the code
 
+### 11. Audit Trail + Reprocess Flow
 
-### 11. Extra: sanity checks you’ll actually use
+At this stage we connected **AuditFn** to all pipeline stages (Ingest → Normalize → Persist).  
+- Every event (`ingest.raw.v1`, `etl.normalized.v1`, `etl.persisted.v1`) is now **mirrored to S3** as immutable JSONL.  
+- Operators can later reprocess historical data using **Step Functions**, without replaying from the source system.  
+- DynamoDB writes are idempotent: the same entity can be reprocessed multiple times, and only the version counter is incremented.
+
+#### 11.0 Verify audit events
+
+Each Lambda writes to the AuditFn asynchronously. To verify, invoke the Ingest function:
+
+```fish
+set INGEST_FN (aws lambda list-functions \
+  --query "Functions[?contains(FunctionName,'Ingest')].FunctionName" \
+  --output text)
+
+aws lambda invoke \
+  --function-name "$INGEST_FN" \
+  --payload '{
+    "body": "{\"metadata\":{\"tenantId\":\"demo\",\"source\":\"cli\"},\"payload\":{\"patientId\":\"pat-123\",\"modality\":\"CR\",\"studyInstanceUID\":\"1.2.3.4\"}}"
+  }' \
+  /tmp/ingest-out.json \
+  --cli-binary-format raw-in-base64-out
+
+cat /tmp/ingest-out.json
+```
+
+Then list the audit bucket:
+
+```fish
+set AUDIT_BUCKET (aws cloudformation describe-stacks \
+  --stack-name EtL-Storage \
+  --query "Stacks[0].Outputs[?OutputKey=='AuditBucketName'].OutputValue" \
+  --output text)
+
+set DATE_UTC (date -u +%F)
+
+aws s3 ls "s3://$AUDIT_BUCKET/tenantId=demo/date=$DATE_UTC/" --recursive
+```
+
+You should see hourly partitions (`hour=HH/...jsonl`). Each JSONL file contains appended events for that window.
+
+Inspect one file:
+
+```fish
+set SAMPLE (aws s3 ls "s3://$AUDIT_BUCKET/tenantId=demo/date=$DATE_UTC/" \
+  --recursive | head -n1 | awk '{print $4}')
+
+aws s3 cp "s3://$AUDIT_BUCKET/$SAMPLE" /tmp/audit.jsonl
+sed -n '1,5p' /tmp/audit.jsonl
+```
+
+#### 11.1 Verify DynamoDB versioning
+
+Reprocessed entities increment `version` without duplicating rows.
+
+```fish
+set TABLE_NAME (aws cloudformation describe-stacks \
+  --stack-name EtL-Data \
+  --query "Stacks[0].Outputs[?OutputKey=='TableName'].OutputValue" \
+  --output text)
+
+aws dynamodb query \
+  --table-name $TABLE_NAME \
+  --key-condition-expression "PK = :pk" \
+  --expression-attribute-values '{":pk":{"S":"TENANT#demo"}}' \
+  --output json | jq '.Items[] | {PK:.PK.S, SK:.SK.S, version:(.version?.N // "n/a")}'
+```
+
+If you see the same entity with `version: 2`, `3`, etc., idempotency is confirmed.
+
+#### 11.2 Reprocess via Step Functions
+
+To replay a raw file through normalize → persist:
+
+```fish
+set SFN_ARN (aws stepfunctions list-state-machines \
+  --query "stateMachines[?contains(name,'EtlReprocess')].stateMachineArn" \
+  --output text)
+
+set RAW_BUCKET (aws cloudformation describe-stacks \
+  --stack-name EtL-Storage \
+  --query "Stacks[0].Outputs[?OutputKey=='RawBucketName'].OutputValue" \
+  --output text)
+
+set DATE_UTC (date -u +%F)
+set KEY "raw/demo/$DATE_UTC/<your-object-key>.json"
+
+aws stepfunctions start-execution \
+  --state-machine-arn "$SFN_ARN" \
+  --input (printf '{"tenantId":"demo","bucket":"%s","key":"%s"}' $RAW_BUCKET $KEY)
+```
+
+Check status:
+
+```fish
+aws stepfunctions list-executions \
+  --state-machine-arn "$SFN_ARN" \
+  --query "executions[0].{name:name,status:status,start:startDate,stop:stopDate}"
+```
+
+A `SUCCEEDED` status means the reprocess path worked and events flowed through normalize → persist → audit again.
+
+
+### 12. Extra: sanity checks you’ll actually use
   ``` fish
 # Which Lambda consumes the normalized queue?
 aws lambda list-event-source-mappings \
@@ -610,7 +713,7 @@ aws logs filter-log-events \
   --limit 20 | jq -r '.events[].message'
   ```
 
-### 12. Clean up (local queues while testing)
+### 13. Clean up (local queues while testing)
 If you’ve spammed test messages and want a clean slate:
   ``` fish
 # Drain NQURL (normalized) safely — repeat an appropriate number of times or script it
