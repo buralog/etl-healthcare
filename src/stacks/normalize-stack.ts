@@ -5,6 +5,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as path from "path";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import * as iam from "aws-cdk-lib/aws-iam";
 
 interface NormalizeStackProps extends StackProps {
   ingestQueue: sqs.IQueue;
@@ -13,6 +14,7 @@ interface NormalizeStackProps extends StackProps {
 }
 
 export class NormalizeStack extends Stack {
+  public readonly fn: NodejsFunction;
   constructor(scope: Construct, id: string, props: NormalizeStackProps) {
     super(scope, id, props);
 
@@ -21,7 +23,7 @@ export class NormalizeStack extends Stack {
 
     const entry = path.resolve(__dirname, "../../services/normalize/handler.ts");
 
-    const fn = new NodejsFunction(this, "NormalizeFn", {
+    this.fn = new NodejsFunction(this, "NormalizeFn", {
       entry,
       handler: "main",
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -39,19 +41,26 @@ export class NormalizeStack extends Stack {
       },
     });
 
+    this.fn.addEnvironment("METRICS_NS", "etl.health");
+    this.fn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["cloudwatch:PutMetricData"],
+      resources: ["*"],
+      conditions: { "StringEquals": { "cloudwatch:namespace": "etl.health" } },
+    }));
+
     // Trigger from IngestQueue (with partial batch failure support)
-    fn.addEventSource(new SqsEventSource(props.ingestQueue, {
+    this.fn.addEventSource(new SqsEventSource(props.ingestQueue, {
       batchSize: 10,
       maxBatchingWindow: Duration.seconds(5),
       reportBatchItemFailures: true,
     }));
 
     // Permissions to publish normalized events
-    props.normalizedQueue.grantSendMessages(fn);
+    props.normalizedQueue.grantSendMessages(this.fn);
 
     // Permit invoke if provided
     if (props.auditFn) {
-      props.auditFn.grantInvoke(fn);
+      props.auditFn.grantInvoke(this.fn);
     }
   }
 }
