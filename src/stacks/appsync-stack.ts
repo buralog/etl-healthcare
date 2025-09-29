@@ -12,6 +12,9 @@ export interface AppSyncStackProps extends StackProps {
 }
 
 export class AppSyncStack extends Stack {
+  public readonly api: appsync.GraphqlApi;
+  public readonly userPool: cognito.UserPool;
+
   constructor(scope: Construct, id: string, props: AppSyncStackProps) {
     super(scope, id, props);
 
@@ -37,12 +40,15 @@ export class AppSyncStack extends Stack {
       concretePool.addDomain('UserPoolDomain', {
         cognitoDomain: { domainPrefix: `${this.stackName.toLowerCase()}-etl` },
       });
+      this.userPool = concretePool;
+    } else {
+      this.userPool = userPool as cognito.UserPool;
     }
 
     // --- AppSync API (schema next to repo’s src/appsync/schema.graphql)
     const schemaPath = path.join(process.cwd(), 'src', 'appsync', 'schema.graphql');
 
-    const api = new appsync.GraphqlApi(this, 'Api', {
+    this.api = new appsync.GraphqlApi(this, 'Api', {
       name: 'etl-healthcare',
       schema: appsync.SchemaFile.fromAsset(schemaPath),
       authorizationConfig: {
@@ -71,7 +77,7 @@ export class AppSyncStack extends Stack {
     });
     props.table.grantReadData(queryFn);
 
-    const ds = api.addLambdaDataSource('QueryDS', queryFn);
+    const ds = this.api.addLambdaDataSource('QueryDS', queryFn);
 
     // --- Field resolvers → single Lambda
     ds.createResolver('GetPatientResolver', {
@@ -88,7 +94,7 @@ export class AppSyncStack extends Stack {
     });
 
     // --- Outputs
-    new CfnOutput(this, 'GraphQLEndpoint', { value: api.graphqlUrl });
+    new CfnOutput(this, 'GraphQLEndpoint', { value: this.api.graphqlUrl });
     new CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
   }

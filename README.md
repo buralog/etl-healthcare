@@ -689,8 +689,99 @@ aws stepfunctions list-executions \
 
 A `SUCCEEDED` status means the reprocess path worked and events flowed through normalize → persist → audit again.
 
+### 12. Observability: Alarms & Dashboard
 
-### 12. Extra: sanity checks you’ll actually use
+At this stage we add **CloudWatch alarms** and a simple **dashboard** to make the pipeline production-ready.  
+- Each Lambda already uses Powertools for structured logs and metrics.  
+- We now expose **DLQ alarms**, **error rates**, and **p99 latency** for quick visibility.  
+- A CloudWatch dashboard aggregates the key metrics.
+
+#### 12.0 Deploy alarms stack
+
+Deploy the alarms stack (this wires alarms to existing queues, DynamoDB, and AppSync):
+
+```bash
+cdk deploy EtL-Alarms --require-approval never
+```
+
+#### 12.1 Check created alarms
+
+List alarms:
+
+```bash
+aws cloudwatch describe-alarms \
+  --query "MetricAlarms[].{Name:AlarmName,State:StateValue}" \
+  --output table
+```
+
+You should see alarms like:
+- `IngestQueue-DLQ-Alarm`
+- `NormalizeQueue-DLQ-Alarm`
+- `PersistQueue-DLQ-Alarm`
+- `AppSyncLatencyP99-Alarm`
+
+By default they are in `OK` state.
+
+#### 12.2 Trigger a test DLQ alarm
+
+To simulate a failure, push an invalid event into the ingest queue:
+
+```bash
+set INGEST_QUEUE (aws cloudformation describe-stacks \
+  --stack-name EtL-Messaging \
+  --query "Stacks[0].Outputs[?OutputKey=='IngestQueueUrl'].OutputValue" \
+  --output text)
+
+aws sqs send-message \
+  --queue-url $INGEST_QUEUE \
+  --message-body '{"bad":"message"}'
+```
+
+Within a few retries the message will fail validation and land in the DLQ.
+
+Check DLQ messages:
+
+```bash
+set DLQ (aws cloudformation describe-stacks \
+  --stack-name EtL-Messaging \
+  --query "Stacks[0].Outputs[?OutputKey=='IngestDLQUrl'].OutputValue" \
+  --output text)
+
+aws sqs receive-message --queue-url $DLQ
+```
+
+The `IngestQueue-DLQ-Alarm` should move to `ALARM` state.
+
+#### 12.3 View dashboard
+
+Navigate to the CloudWatch console → Dashboards → `EtL-Dashboard`.  
+It shows:
+- SQS message counts (Ingest, Normalized, Persisted)
+- Error metrics (validation failures, idempotency skips)
+- Lambda duration & errors
+- AppSync latency p99
+
+#### 12.4 Reset after test
+
+Purge the DLQ to clear the alarm:
+
+```bash
+aws sqs purge-queue --queue-url $DLQ
+```
+
+Wait a few minutes for the alarm to return to `OK`.
+
+---
+
+✅ With this step, the pipeline now has:
+- **Automated alarms** for DLQs, error rates, and latency.  
+- **A unified dashboard** for quick status checks.  
+- End-to-end observability: logs, metrics, traces, and alarms.
+
+This completes the **Observability stage** of the ETL pipeline.
+
+
+### 13. Extra: sanity checks you’ll actually use
   ``` fish
 # Which Lambda consumes the normalized queue?
 aws lambda list-event-source-mappings \
@@ -713,7 +804,7 @@ aws logs filter-log-events \
   --limit 20 | jq -r '.events[].message'
   ```
 
-### 13. Clean up (local queues while testing)
+### 14. Clean up (local queues while testing)
 If you’ve spammed test messages and want a clean slate:
   ``` fish
 # Drain NQURL (normalized) safely — repeat an appropriate number of times or script it

@@ -2,6 +2,7 @@ import { randomUUID, createHash } from "crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { auditFireAndForget } from "../../libs/obs/audit";
+import { metricCount, metricMs } from "../../libs/obs/metrics";
 
 const s3 = new S3Client({});
 const sqs = new SQSClient({});
@@ -10,6 +11,7 @@ const RAW_BUCKET = process.env.RAW_BUCKET!;
 const INGEST_QUEUE_URL = process.env.INGEST_QUEUE_URL!;
 
 export async function main(event: any) {
+  const t0 = Date.now();
   try {
     const body = JSON.parse(event.body ?? "{}");
 
@@ -59,8 +61,13 @@ export async function main(event: any) {
       payload: message.payload,
     });
 
+    await metricCount("ingest_count", 1, { service: "ingest" });
+    await metricMs("ingest_latency_ms", Date.now() - t0, { service: "ingest" });
+
     return { statusCode: 202, body: JSON.stringify({ ok: true, key, message }) };
   } catch (err) {
+    await metricCount("ingest_error_count", 1, { service: "ingest" });
+    
     console.error("Ingest error", err);
     return { statusCode: 500, body: JSON.stringify({ error: "Internal Error" }) };
   }

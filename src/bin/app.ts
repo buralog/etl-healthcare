@@ -10,6 +10,7 @@ import { NormalizeStack } from '../stacks/normalize-stack';
 import { PersistStack } from '../stacks/persist-stack';
 import { AuditStack } from '../stacks/audit-stack';
 import { ReprocessStack } from '../stacks/reprocess-stack';
+import { ReprocessApiStack } from "../stacks/reprocess-api-stack";
 
 const app = new cdk.App();
 
@@ -62,13 +63,52 @@ const appsync = new AppSyncStack(app, 'EtL-AppSync', {
 });
 
 const reprocess = new ReprocessStack(app, 'EtL-Reprocess', {
-  env,
-  rawBucket: storage.rawLanding,
-  ingestQueue: messaging.ingestQueue,
+    env,
+    rawBucket: storage.rawLanding,
+    ingestQueue: messaging.ingestQueue,
+});
+
+const reprocessAPI = new ReprocessApiStack(app, "EtL-ReprocessApi", {
+    env,
+    userPool: appsync.userPool,
+    reprocessStateMachine: reprocess.stateMachine,
+    rawBucket: storage.rawLanding,
+    auditBucket: storage.auditBucket,
+    ingestQueue: messaging.ingestQueue,
+    ingestDlq: messaging.ingestDLQ,
+    normalizedQueue: messaging.normalizedQueue,
+    normalizedDlq: messaging.normalizedDLQ,
+    persistedQueue: messaging.persistedQueue,
+    persistedDlq: messaging.persistedDLQ,
 });
 
 // ── Alarms (watch everything)
-const alarms = new AlarmsStack(app, 'EtL-Alarms', { env });
+const alarms = new AlarmsStack(app, "EtL-Alarms", {
+    env,
+    // Queues (+ DLQs if you expose them)
+    ingestQueue: messaging.ingestQueue,
+    ingestDlq: messaging.ingestDLQ,       // optional
+    normalizedQueue: messaging.normalizedQueue,
+    normalizedDlq: messaging.normalizedDLQ,  // optional
+    persistedQueue: messaging.persistedQueue,
+    persistedDlq: messaging.persistedDLQ,   // optional
+
+    // Lambdas
+    ingestFn: ingest.fn,
+    normalizeFn: normalize.fn,
+    persistFn: persist.fn,
+
+    api: appsync.api,
+
+    metricsNamespace: "etl.health",
+});
+
+
+alarms.addDependency(messaging);
+alarms.addDependency(ingest);
+alarms.addDependency(normalize);
+alarms.addDependency(persist);
+alarms.addDependency(appsync);
 
 // ── Explicit dependencies (only where not inferred by props):
 audit.addDependency(storage);     // audit needs the audit bucket
@@ -87,6 +127,12 @@ appsync.addDependency(auth);       // if using Auth’s user pool (or keep even 
 
 reprocess.addDependency(storage);
 reprocess.addDependency(messaging);
+
+reprocessAPI.addDependency(auth);
+reprocessAPI.addDependency(appsync);
+reprocessAPI.addDependency(reprocess);
+reprocessAPI.addDependency(storage);
+reprocessAPI.addDependency(messaging);
 
 // Alarms depend on resources they observe
 alarms.addDependency(appsync);

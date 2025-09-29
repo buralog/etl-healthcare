@@ -5,6 +5,7 @@ import { validate } from "../../libs/contracts/src/validate";
 import { auditFireAndForget } from "../../libs/obs/audit";
 import type { IngestRawV1 } from "../../libs/contracts/src/types.ts/ingest.raw.v1";
 import type { EtlNormalizedV1 } from "../../libs/contracts/src/types.ts/etl.normalized.v1";
+import { metricCount, metricMs } from "../../libs/obs/metrics";
 
 const sqs = new SQSClient({});
 const NORMALIZED_QUEUE_URL = process.env.NORMALIZED_QUEUE_URL!;
@@ -38,9 +39,11 @@ function cryptoRandom() {
 }
 
 export async function main(event: SQSEvent) {
+  const t0Batch = Date.now();
   const failures: Array<{ itemIdentifier: string }> = [];
 
   await Promise.all(event.Records.map(async (rec: SQSRecord) => {
+    const t0 = Date.now();
     try {
       const body = JSON.parse(rec.body);
       validate<IngestRawV1>("ingest.raw.v1", body);
@@ -70,11 +73,17 @@ export async function main(event: SQSEvent) {
         },
       });
 
+
+      await metricCount("dto_valid_count", 1, { service: "normalize" });
+      await metricMs("transform_time_ms", Date.now() - t0, { service: "normalize" });
+
     } catch (err) {
+      await metricCount("dto_invalid_count", 1, { service: "normalize" });
       console.error("Normalize error for messageId", rec.messageId, err);
       failures.push({ itemIdentifier: rec.messageId });
     }
   }));
 
+  await metricMs("normalize_batch_time_ms", Date.now() - t0Batch, { service: "normalize" });
   return { batchItemFailures: failures };
 }

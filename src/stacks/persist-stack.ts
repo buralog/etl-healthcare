@@ -1,11 +1,13 @@
 import { Duration, Stack, StackProps, Tags } from "aws-cdk-lib";
 import { Construct } from "constructs";
+import * as path from "path";
+
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
-import * as path from "path";
 
 interface PersistStackProps extends StackProps {
   normalizedQueue: sqs.IQueue;
@@ -15,6 +17,7 @@ interface PersistStackProps extends StackProps {
 }
 
 export class PersistStack extends Stack {
+  public readonly fn: NodejsFunction;
   constructor(scope: Construct, id: string, props: PersistStackProps) {
     super(scope, id, props);
 
@@ -23,7 +26,7 @@ export class PersistStack extends Stack {
 
     const entry = path.resolve(__dirname, "../../services/persist/handler.ts");
 
-    const fn = new NodejsFunction(this, "PersistFn", {
+    this.fn = new NodejsFunction(this, "PersistFn", {
       entry,
       handler: "main",
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -42,20 +45,27 @@ export class PersistStack extends Stack {
       },
     });
 
+    this.fn.addEnvironment("METRICS_NS", "etl.health");
+    this.fn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["cloudwatch:PutMetricData"],
+      resources: ["*"],
+      conditions: { "StringEquals": { "cloudwatch:namespace": "etl.health" } },
+    }));
+
     // Event source: consume normalized events
-    fn.addEventSource(new SqsEventSource(props.normalizedQueue, {
+    this.fn.addEventSource(new SqsEventSource(props.normalizedQueue, {
       batchSize: 10,
       maxBatchingWindow: Duration.seconds(5),
       reportBatchItemFailures: true,
     }));
 
     // Least-privilege
-    props.table.grantReadWriteData(fn);
-    props.persistedQueue.grantSendMessages(fn);
+    props.table.grantReadWriteData(this.fn);
+    props.persistedQueue.grantSendMessages(this.fn);
 
     // Permit invoke if provided
     if (props.auditFn) {
-      props.auditFn.grantInvoke(fn);
+      props.auditFn.grantInvoke(this.fn);
     }
   }
 }
