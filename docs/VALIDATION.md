@@ -382,7 +382,7 @@ Instead of raw `curl`, use [Bruno](https://www.usebruno.com/) (or Postman) to ru
        --query "Stacks[0].Outputs[?OutputKey=='GraphQLEndpoint'].OutputValue" \
        --output text
      ```
-   - `jwt_token` → the IdToken you obtained in **12.2**.
+   - `jwt_token` → the IdToken you obtained in **10.2**.
 
 3. **Run the queries**  
    - ✅ `getPatient(id: "p-123")` → patient metadata  
