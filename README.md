@@ -33,23 +33,6 @@ The goal: show how to build a **modular, production-ready ETL pipeline for healt
   - [Why this layout matters](#why-this-layout-matters)
 - [Quickstart](#-quickstart)
 - [Validate the Pipeline](#-validate-the-pipeline)
-  - [1. Set context (region, profile)](#1-set-context-region-profile)
-  - [2. Discover resource endpoints/ARNs](#2-discover-resource-endpointsarns)
-  - [3. Tail the persist Lambda logs (CloudWatch)](#3-tail-the-persist-lambda-logs-cloudwatch)
-  - [4. Smoke test: ingest via HTTP](#4-smoke-test-ingest-via-http)
-  - [5. Did the normalized message land? (SQS peek)](#5-did-the-normalized-message-land-sqs-peek)
-  - [6. DynamoDB write checks](#6-dynamodb-write-checks)
-  - [7. Observe etl.persisted.v1 events](#7-observe-etlpersistedv1-events)
-  - [8. Read-and-remove a message (SQS hygiene)](#8-read-and-remove-a-message-sqs-hygiene)
-  - [9. Idempotency demo (no double-writes)](#9-idempotency-demo-no-double-writes)
-  - [10. Query Layer: AppSync + Cognito (GraphQL)](#10-query-layer-appsync--cognito-graphql)
-    - [10.0 Stack deployment](#100-stack-deployment)
-    - [10.1 Create a test Cognito user](#101-create-a-test-cognito-user)
-    - [10.2 Authenticate and get a JWT token](#102-authenticate-and-get-a-jwt-token)
-    - [10.3 Send GraphQL queries](#103-send-graphql-queries)
-    - [10.4 Quick GraphQL smoke tests with Bruno API Client](#104-quick-graphql-smoke-tests-with-bruno-api-client)
-  - [11. Extra: sanity checks you’ll actually use](#11-extra-sanity-checks-youll-actually-use)
-  - [12. Clean up (local queues while testing)](#12-clean-up-local-queues-while-testing)
 </details>
 
 ## 🚀 Architecture Overview
@@ -154,44 +137,36 @@ The goal: show how to build a **modular, production-ready ETL pipeline for healt
 ├── services
 │   ├── api-query
 │   │   ├── package.json
-│   │   ├── src
-│   │   │   └── handler.ts
+│   │   ├── src/handler.ts
 │   │   └── tsconfig.json
 │   ├── audit
 │   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
+│   │   └── src/handler.ts
 │   ├── audit-list-api
 │   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
+│   │   └── src/handler.ts
 │   ├── dlq-retry-api
 │   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
+│   │   └── src/handler.ts
 │   ├── health-api
 │   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
+│   │   └── src/handler.ts
 │   ├── ingest
 │   │   └── handler.ts
 │   ├── ingest-url-api
 │   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
+│   │   └── src/handler.ts
 │   ├── normalize
 │   │   └── handler.ts
 │   ├── persist
 │   │   └── handler.ts
 │   ├── reprocess-api
 │   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
-│   ├── reprocess-prep
-│   │   ├── package.json
-│   │   └── src
-│   │       └── handler.ts
-│   └── search
+│   │   └── src/handler.ts
+│   └── reprocess-prep
+│       ├── package.json
+│       └── src/handler.ts
+│
 ├── src
 │   ├── appsync
 │   │   └── schema.graphql
@@ -338,7 +313,7 @@ That makes the system modular, testable, and safer to evolve over time.
    aws dynamodb list-tables
    ```
 
-## ✅ Validating the Pipeline
+## ✅ Validate the Pipeline
 
 To keep this README concise, the detailed validation steps live in a separate document:  
 [📖 Validation Guide](docs/VALIDATION.md)

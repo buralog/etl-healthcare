@@ -1,18 +1,71 @@
 # ⚡ Validate the Pipeline
-Assumes you’ve already done Quickstart (install, bootstrap, deploy).
+
+This guide walks you through **end-to-end validation** of the ETL Healthcare pipeline.  
+The goal is to prove that the deployed system is working as expected: ingesting data, normalizing it, persisting to DynamoDB, and making it queryable via GraphQL.  
+
+Think of this as a **smoke test** + **developer reference**:
+- Use these commands whenever you want to check if the pipeline is healthy after a fresh deploy.  
+- They also serve as concrete examples of how each stage (Ingest → Normalize → Persist → Query) behaves.  
+- Everything here runs against your AWS account, so you can validate both the infrastructure and the data flow.
+
 > **NOTE:** Shell examples use `fish` shell.
-> 
+
 **For bash users**:
 * Replace `set VAR value` with `VAR=value` (no `set`).
 * Command substitution: `(...)` → `$(...)`.
 * Loops use standard for syntax.
+
+
+
+### 📑 Table of Contents
+- [Validate the Pipeline](#-validate-the-pipeline)
+  - [1. Set context (region, profile)](#1-set-context-region-profile)
+  - [2. Discover resource endpoints/ARNs](#2-discover-resource-endpointsarns)
+  - [3. Tail the persist Lambda logs (CloudWatch)](#3-tail-the-persist-lambda-logs-cloudwatch)
+  - [4. Smoke test: ingest via HTTP](#4-smoke-test-ingest-via-http)
+  - [5. Did the normalized message land? (SQS peek)](#5-did-the-normalized-message-land-sqs-peek)
+  - [6. DynamoDB write checks](#6-dynamodb-write-checks)
+  - [7. Observe etl.persisted.v1 events](#7-observe-etlpersistedv1-events)
+  - [8. Read-and-remove a message (SQS hygiene)](#8-read-and-remove-a-message-sqs-hygiene)
+  - [9. Idempotency demo (no double-writes)](#9-idempotency-demo-no-double-writes)
+  - [10. Query Layer: AppSync + Cognito (GraphQL)](#10-query-layer-appsync--cognito-graphql)
+    - [10.0 Stack deployment](#100-stack-deployment)
+    - [10.1 Create a test Cognito user](#101-create-a-test-cognito-user)
+    - [10.2 Authenticate and get a JWT token](#102-authenticate-and-get-a-jwt-token)
+    - [10.3 Send GraphQL queries](#103-send-graphql-queries)
+    - [10.4 Quick GraphQL smoke tests with Bruno API Client](#104-quick-graphql-smoke-tests-with-bruno-api-client)
+  - [11. Audit Trail + Reprocess Flow](#11-audit-trail--reprocess-flow)
+    - [11.0 Verify audit events](#110-verify-audit-events)
+    - [11.1 Verify DynamoDB versioning](#111-verify-dynamodb-versioning)
+    - [11.2 Reprocess via Step Functions](#112-reprocess-via-step-functions)
+  - [12. Observability: Alarms & Dashboard](#12-observability-alarms--dashboard)
+    - [12.0 Deploy alarms stack](#120-deploy-alarms-stack)
+    - [12.1 Check created alarms](#121-check-created-alarms)
+    - [12.2 Trigger a test DLQ alarm](#122-trigger-a-test-dlq-alarm)
+    - [12.3 View dashboard](#123-view-dashboard)
+    - [12.4 Reset after test](#124-reset-after-test)
+  - [13. Adapters: HL7v2 + CSV → Normalize → Persist](#13-adapters-hl7v2--csv--normalize--persist)
+    - [13.0 HL7v2 → Normalize → Persist (via Reprocess](#130-hl7v2--normalize--persist-via-reprocess)
+    - [13.1 CSV adapter path (LabX sample)](#131-csv-adapter-path-labx-sample)
+    - [13.2 Health snapshot (queues + recent audit + error counters)](#132-health-snapshot-queues--recent-audit--error-counters)
+    - [13.3 DLQ retry endpoint (admin-only)](#133-dlq-retry-endpoint-admin-only)
+    - [13.4 Audit JSONL quick-inspect helpers](#134-audit-jsonl-quick-inspect-helpers)
+    - [13.5 Metrics namespace (etl.health) smoke check](#135-metrics-namespace-etlhealth-smoke-check)
+    - [13.6 End-to-end demo recipe (HL7v2)](#136-end-to-end-demo-recipe-hl7v2)
+    - [13.7 ingest.raw.v1 envelope notes (Normalize accepts)](#137-appendix--ingestrawv1-envelope-notes-normalize-accepts)
+  - [14. Extra: sanity checks you’ll actually use](#11-extra-sanity-checks-youll-actually-use)
+  - [15. Clean up (local queues while testing)](#12-clean-up-local-queues-while-testing)
+
+---
+
 ### 1. Set context (region, profile)
-   ```bash
-     # Adjust to your AWS account/region
-     set -x AWS_REGION eu-central-1
-     # optional: set a profile if you use one
-     set -x AWS_PROFILE myprofile
-   ```
+
+```bash
+  # Adjust to your AWS account/region
+  set -x AWS_REGION eu-central-1
+  # optional: set a profile if you use one
+  set -x AWS_PROFILE myprofile
+```
 
 ### 2. Discover resource endpoints/ARNs
 We resolve stack outputs once and reuse them in commands.
@@ -539,7 +592,7 @@ At this stage we connected **real-world healthcare formats** (HL7v2 messages and
 
 This proves the pipeline handles both **streaming JSON payloads** and **batch file uploads**, producing a consistent event (`etl.normalized.v1`) and storing **FHIR-aligned Observation resources** in DynamoDB.
 
-#### 13.1 HL7v2 → Normalize → Persist (via Reprocess)
+#### 13.0 HL7v2 → Normalize → Persist (via Reprocess)
 Replays an `.hl7` file from S3 through **Reprocess → Normalize → Persist** and verifies `ENTITY#observation#...` rows in DynamoDB.
 
 ```fish
@@ -581,7 +634,7 @@ aws dynamodb query \
   --output json | jq
 ```
 
-#### 13.2 CSV adapter path (LabX sample)
+#### 13.1 CSV adapter path (LabX sample)
 Parses a CSV from S3, validates DTO with zod, maps to FHIR Observation (AJV minimal check), then persists.
 
 ```fish
@@ -602,7 +655,7 @@ aws dynamodb query \
   --output json | jq
 ```
 
-#### 13.3 Health snapshot (queues + recent audit + error counters)
+#### 13.2 Health snapshot (queues + recent audit + error counters)
 Quick system view backed by CloudWatch + last audit JSONL object.
 
 ```fish
@@ -618,7 +671,7 @@ Fields:
 - `metrics` → recent error counters (ingest/normalize/persist)
 - `audit.key` and `audit.lastModified` → last JSONL written
 
-#### 13.4 DLQ retry endpoint (admin-only)
+#### 13.3 DLQ retry endpoint (admin-only)
 Moves up to N messages from a chosen DLQ back to its main queue.
 Requires your Cognito user to be in group admin.
 
@@ -644,7 +697,7 @@ curl -s "$DLQ_URL" \
   -d '{"queue":"ingest","max":5}' | jq
 ```
 
-#### 13.5 Audit JSONL quick-inspect helpers
+#### 13.4 Audit JSONL quick-inspect helpers
 JSONL files are partitioned like: `tenantId=<id>/date=YYYY-MM-DD/hour=HH/<uuid>.jsonl`.
 
 ```fish
@@ -663,7 +716,7 @@ aws s3 cp "s3://$AUDIT_BUCKET/$SAMPLE" /tmp/audit.jsonl
 sed -n '1,10p' /tmp/audit.jsonl
 ```
 
-#### 13.6 Metrics namespace (etl.health) smoke check
+#### 13.5 Metrics namespace (etl.health) smoke check
 Confirms custom business metrics are flowing (Powertools for Lambda).
 ```fish
 aws cloudwatch list-metrics --namespace etl.health \
@@ -671,7 +724,7 @@ aws cloudwatch list-metrics --namespace etl.health \
 ```
 >If empty, generate traffic (ingest/reprocess) and re-run. You should see names like `normalize_count`, `dto_invalid_count`, `fhir_invalid_count`, `persist_error_count`, etc.
 
-#### 13.7 End-to-end demo recipe (HL7v2)
+#### 13.6 End-to-end demo recipe (HL7v2)
 ```fish
 # 0) Vars
 set DATE (date -u +%F)
@@ -700,7 +753,7 @@ curl -s (string replace -r '/?$' '' $API_URL)"/health?tenantId=demo" \
   -H "Authorization: Bearer $JWT" | jq
 ```
 
-#### 13.8 Appendix — ingest.raw.v1 envelope notes (Normalize accepts)
+#### 13.7 Appendix — ingest.raw.v1 envelope notes (Normalize accepts)
 Your Normalize step now accepts three shapes and branches accordingly:
 ```json
 // A) Generic JSON (HTTP ingest)
