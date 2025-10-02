@@ -1,6 +1,7 @@
 import { Duration, Stack, StackProps, Tags } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as path from "path";
@@ -11,6 +12,7 @@ interface NormalizeStackProps extends StackProps {
   ingestQueue: sqs.IQueue;
   normalizedQueue: sqs.IQueue;
   auditFn?: lambda.IFunction;
+  rawBucket: s3.IBucket;  
 }
 
 export class NormalizeStack extends Stack {
@@ -57,6 +59,8 @@ export class NormalizeStack extends Stack {
 
     // Permissions to publish normalized events
     props.normalizedQueue.grantSendMessages(this.fn);
+    props.rawBucket.grantRead(this.fn);
+    this.fn.addEnvironment("RAW_BUCKET_NAME", props.rawBucket.bucketName);
 
     // Permit invoke if provided
     if (props.auditFn) {

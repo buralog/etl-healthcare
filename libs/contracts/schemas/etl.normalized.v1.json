@@ -25,7 +25,7 @@
       "additionalProperties": false,
       "required": ["entityType", "entityId"],
       "properties": {
-        "entityType": { "type": "string", "enum": ["study", "series", "instance", "patient", "encounter", "generic"] },
+        "entityType": { "type": "string", "enum": ["study", "series", "instance", "patient", "encounter", "generic", "observation"] },
         "entityId": { "type": "string", "minLength": 1 },
         "patientId": { "type": "string" },
         "encounterId": { "type": "string" },

@@ -21,7 +21,7 @@ export interface EtlNormalizedV1 {
     traceId: string;
   };
   data: {
-    entityType: "study" | "series" | "instance" | "patient" | "encounter" | "generic";
+    entityType: "study" | "series" | "instance" | "patient" | "encounter" | "generic" | "observation";
     entityId: string;
     patientId?: string;
     encounterId?: string;

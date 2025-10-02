@@ -19,16 +19,15 @@ export class ReprocessStack extends Stack {
     constructor(scope: Construct, id: string, props: ReprocessStackProps) {
         super(scope, id, props);
 
-        // You can switch to Code.fromAsset("services/reprocess-prep/dist") if you prefer dist.
-        const prepFn: lambda.IFunction = new NodejsFunction(this, "ReprocessPrepFn", {
+        const prepFn = new NodejsFunction(this, "ReprocessPrepFn", {
             entry: path.join(process.cwd(), "services", "reprocess-prep", "src", "handler.ts"),
-            handler: "handler",
+            handler: "main",
             runtime: lambda.Runtime.NODEJS_20_X,
             timeout: Duration.seconds(10),
         });
 
         // Permissions for prep function to read raw S3
-        props.rawBucket.grantRead(prepFn);
+        // props.rawBucket.grantRead(prepFn);
 
         // Task 1: build ingest.raw.v1 message from S3 object
         const prepTask = new tasks.LambdaInvoke(this, "PrepMessageFromS3", {
