@@ -95,57 +95,147 @@ The goal: show how to build a **modular, production-ready ETL pipeline for healt
 <details>
      <summary>View the repo layout</summary>
 
+
 ```
-etl-healthcare/
-├── libs/                         # Shared libraries
-│   ├── adapters/                 # External service adapters
-│   ├── contracts/                # Event & DTO schemas
-│   │   └── src/
-│   │       ├── dto/              # Data transfer objects
+.
+├── bruno
+│   └── etl-healthcare-tests.json
+├── jest.config.js
+├── libs
+│   ├── adapters
+│   │   ├── csv
+│   │   │   ├── labx.test.ts
+│   │   │   └── labx.ts
+│   │   ├── hl7
+│   │   │   ├── v2.test.ts
+│   │   │   └── v2.ts
+│   │   └── index.ts
+│   ├── contracts
+│   │   ├── schemas
+│   │   │   ├── etl.normalized.v1.json
+│   │   │   ├── etl.persisted.v1.json
+│   │   │   ├── fhir
+│   │   │   │   └── Observation.r4.min.json
+│   │   │   └── ingest.raw.v1.json
+│   │   └── src
+│   │       ├── dto
 │   │       │   ├── normalized.observation.v1.json
 │   │       │   └── normalized.patient.v1.json
-│   │       └── events/           # Event schemas
-│   │           ├── etl.normalized.v1.json
-│   │           ├── etl.persisted.v1.json
-│   │           └── ingest.raw.v1.json
-│   ├── obs/                      # Observability helpers
-│   ├── ports/                    # Interface definitions
-│   ├── storage-ddb/              # DynamoDB utilities
-│   └── validation/               # Schema validation
-├── schema/                       # API schemas & examples
-│   ├── examples/                 # Sample payloads (HL7, FHIR, etc.)
-│   └── graphql/                  # GraphQL schema definitions
-├── services/                     # Lambda business logic
-│   ├── api-query/                # GraphQL resolvers
-│   ├── audit/                    # Audit logging
-│   ├── ingest/                   # Raw data ingestion
-│   ├── normalize/                # Data validation & transformation
-│   ├── persist/                  # DynamoDB operations
-│   └── search/                   # Search functionality
-├── src/                          # CDK infrastructure code
-│   ├── bin/
-│   │   └── app.ts                # CDK app entry point
-│   └── stacks/                   # Infrastructure stacks
-│       ├── alarms-stack.ts       # CloudWatch alarms, dashboards
-│       ├── appsync-stack.ts      # GraphQL API, resolvers
-│       ├── auth-stack.ts         # Cognito, IAM roles
-│       ├── data-stack.ts         # DynamoDB tables, GSIs
-│       ├── audit-stack.ts        # Lambda functions, Step Functions
-│       ├── messaging-stack.ts    # SQS queues, SNS topics
-│       └── storage-stack.ts      # S3 buckets, KMS keys
-├── cdk.json                      # CDK configuration
-├── package.json                  # Root package.json
-├── pnpm-workspace.yaml          # pnpm workspace configuration
-├── README.md                    # This file
-├── tsconfig.base.json           # Shared TypeScript config
-└── tsconfig.json                # TypeScript configuration
+│   │       ├── events
+│   │       │   ├── etl.normalized.v1.json
+│   │       │   ├── etl.persisted.v1.json
+│   │       │   └── ingest.raw.v1.json
+│   │       ├── types.ts
+│   │       │   ├── etl.normalized.v1.d.ts
+│   │       │   ├── etl.persisted.v1.d.ts
+│   │       │   └── ingest.raw.v1.d.ts
+│   │       └── validate.ts
+│   ├── mappers
+│   │   ├── observation.test.ts
+│   │   └── observation.ts
+│   ├── obs
+│   │   ├── audit.ts
+│   │   └── metrics.ts
+│   ├── ports
+│   ├── storage-ddb
+│   └── validation
+│       ├── dto.ts
+│       └── fhir-ajv.ts
+├── package.json
+├── schema
+│   ├── examples
+│   │   ├── csv
+│   │   │   └── labx.csv
+│   │   └── hl7
+│   │       └── minimal.hl7
+│   └── graphql
+├── scripts
+│   └── publish-schemas.sh
+├── services
+│   ├── api-query
+│   │   ├── package.json
+│   │   ├── src
+│   │   │   └── handler.ts
+│   │   └── tsconfig.json
+│   ├── audit
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   ├── audit-list-api
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   ├── dlq-retry-api
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   ├── health-api
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   ├── ingest
+│   │   └── handler.ts
+│   ├── ingest-url-api
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   ├── normalize
+│   │   └── handler.ts
+│   ├── persist
+│   │   └── handler.ts
+│   ├── reprocess-api
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   ├── reprocess-prep
+│   │   ├── package.json
+│   │   └── src
+│   │       └── handler.ts
+│   └── search
+├── src
+│   ├── appsync
+│   │   └── schema.graphql
+│   ├── bin
+│   │   └── app.ts
+│   └── stacks
+│       ├── alarms-stack.ts
+│       ├── appsync-stack.ts
+│       ├── audit-stack.ts
+│       ├── auth-stack.ts
+│       ├── data-stack.ts
+│       ├── ingest-stack.ts
+│       ├── messaging-stack.ts
+│       ├── normalize-stack.ts
+│       ├── persist-stack.ts
+│       ├── reprocess-api-stack.ts
+│       ├── reprocess-stack.ts
+│       └── storage-stack.ts
+├── tsconfig.base.json
+└── tsconfig.json
+```
 
-# Generated/ignored files:
-# ├── cdk.context.json           # CDK context cache (gitignored)
-# ├── cdk.out/                   # CDK synthesis output (gitignored)
-# ├── dist/                      # Compiled TypeScript (gitignored)  
-# └── node_modules/              # Dependencies (gitignored)
-```     
+### Directory Descriptions
+
+| Path               | Description                                   |
+|--------------------|-----------------------------------------------|
+| `bruno/`           | Bruno API collections for automated testing.  |
+| `libs/adapters/`   | Data adapters (CSV, HL7, etc.).               |
+| `libs/contracts/`  | DTOs and event schemas (JSON, FHIR).          |
+| `libs/mappers/`    | Data transformation mappers.                  |
+| `libs/obs/`        | Observability helpers (audit, metrics).       |
+| `libs/ports/`      | Interfaces/ports for dependency inversion.    |
+| `libs/storage-ddb/`| DynamoDB utility functions.                   |
+| `libs/validation/` | DTO and FHIR schema validation (AJV, etc.).   |
+| `schema/`          | Example payloads (CSV, HL7) and GraphQL schemas. |
+| `services/`        | Lambda business logic, one folder per service. |
+| `src/appsync/`     | GraphQL schema for AppSync.                   |
+| `src/bin/`         | CDK app entrypoint.                           |
+| `src/stacks/`      | CDK stacks (AppSync, DynamoDB, SQS, etc.).    |
+| `scripts/`         | Utility scripts (e.g., publish schemas).      |
+| Config files       | `cdk.json`, `tsconfig.*`, `pnpm-workspace.yaml`, etc. |
+
+---
+
 </details>
 
 
@@ -771,8 +861,6 @@ aws sqs purge-queue --queue-url $DLQ
 
 Wait a few minutes for the alarm to return to `OK`.
 
----
-
 ✅ With this step, the pipeline now has:
 - **Automated alarms** for DLQs, error rates, and latency.  
 - **A unified dashboard** for quick status checks.  
@@ -781,7 +869,220 @@ Wait a few minutes for the alarm to return to `OK`.
 This completes the **Observability stage** of the ETL pipeline.
 
 
-### 13. Extra: sanity checks you’ll actually use
+### 13. Adapters: HL7v2 + CSV → Normalize → Persist  
+At this stage we connected **real-world healthcare formats** (HL7v2 messages and LabX-style CSVs) into the ETL pipeline.  
+
+- Ingested files are replayed via the **Reprocess API** → pushed to the **Normalize service**.  
+- **Adapters** (`parseHl7v2`, `parseLabxCsv`) convert raw files into structured DTOs.  
+- DTOs are validated (Zod + AJV) and mapped into **FHIR Observations**.  
+- Normalized events flow to the **Persist service**, which writes them into DynamoDB with tenant-aware single-table design.  
+
+This proves the pipeline handles both **streaming JSON payloads** and **batch file uploads**, producing a consistent event (`etl.normalized.v1`) and storing **FHIR-aligned Observation resources** in DynamoDB.
+
+#### 13.1 HL7v2 → Normalize → Persist (via Reprocess)
+Replays an `.hl7` file from S3 through **Reprocess → Normalize → Persist** and verifies `ENTITY#observation#...` rows in DynamoDB.
+
+```fish
+# Vars
+set RAW_BUCKET (aws cloudformation describe-stacks \
+  --stack-name EtL-Storage \
+  --query "Stacks[0].Outputs[?OutputKey=='RawLandingBucketName'].OutputValue" \
+  --output text)
+set DATE (date -u +%F)
+
+# 1) Upload a sample HL7 file (ensure .hl7 suffix)
+aws s3 cp schema/examples/hl7/minimal.hl7 s3://$RAW_BUCKET/raw/demo/$DATE/minimal.hl7
+
+# 2) Kick reprocess via the Admin API
+set API_URL (aws cloudformation describe-stacks \
+  --stack-name EtL-ReprocessApi \
+  --query "Stacks[0].Outputs[?OutputKey=='ReprocessApiUrl'].OutputValue" \
+  --output text)
+curl -s (string replace -r '/?$' '' $API_URL)"/reprocess" \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"tenantId":"demo","bucket":"'$RAW_BUCKET'","key":"raw/demo/'$DATE'/minimal.hl7"}' | jq
+
+```
+
+Expect: `{ "ok": true, "executionArn": "...", "startedAt": "..." }`
+
+```fish
+# 3) Verify observations were persisted
+set TABLE (aws cloudformation describe-stacks \
+  --stack-name EtL-Data \
+  --query "Stacks[0].Outputs[?OutputKey=='TableName'].OutputValue" \
+  --output text)
+
+aws dynamodb query \
+  --table-name $TABLE \
+  --key-condition-expression "PK = :pk AND begins_with(SK, :sk)" \
+  --expression-attribute-values '{":pk":{"S":"TENANT#demo"},":sk":{"S":"ENTITY#observation#"}}' \
+  --projection-expression "PK, SK, entityType, entityId, attributes, updatedAt, version" \
+  --output json | jq
+```
+
+#### 13.2 CSV adapter path (LabX sample)
+Parses a CSV from S3, validates DTO with zod, maps to FHIR Observation (AJV minimal check), then persists.
+
+```fish
+# 1) Upload sample CSV
+aws s3 cp schema/examples/csv/labx.csv s3://$RAW_BUCKET/raw/demo/$DATE/labx.csv
+
+# 2) Reprocess that CSV
+curl -s (string replace -r '/?$' '' $API_URL)"/reprocess" \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"tenantId":"demo","bucket":"'$RAW_BUCKET'","key":"raw/demo/'$DATE'/labx.csv"}' | jq
+
+# 3) Check observations again
+aws dynamodb query \
+  --table-name $TABLE \
+  --key-condition-expression "PK = :pk AND begins_with(SK, :sk)" \
+  --expression-attribute-values '{":pk":{"S":"TENANT#demo"},":sk":{"S":"ENTITY#observation#"}}' \
+  --projection-expression "PK, SK, entityType, entityId, attributes, updatedAt, version" \
+  --output json | jq
+```
+
+#### 13.3 Health snapshot (queues + recent audit + error counters)
+Quick system view backed by CloudWatch + last audit JSONL object.
+
+```fish
+# Requires $API_URL and $JWT
+curl -s (string replace -r '/?$' '' $API_URL)"/health?tenantId=demo" \
+  -H "Authorization: Bearer $JWT" | jq
+```
+
+
+Fields:
+
+- `queues.*.{visible,inFlight,delayed}` for ingest/normalized/persisted (+ their DLQs)
+- `metrics` → recent error counters (ingest/normalize/persist)
+- `audit.key` and `audit.lastModified` → last JSONL written
+
+#### 13.4 DLQ retry endpoint (admin-only)
+Moves up to N messages from a chosen DLQ back to its main queue.
+Requires your Cognito user to be in group admin.
+
+```fish
+# One-time (admin) setup — add yourself to the admin group
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id $USER_POOL_ID \
+  --username $TEST_EMAIL \
+  --group-name admin
+
+# Refresh JWT afterwards
+set -x JWT (aws cognito-idp initiate-auth \
+  --region $REGION --client-id $USER_POOL_CLIENT_ID \
+  --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=$TEST_EMAIL,PASSWORD=$TEST_PASS \
+  --query 'AuthenticationResult.IdToken' --output text)
+
+# Retry up to 5 messages from the ingest DLQ
+set DLQ_URL (string replace -r '/?$' '' $API_URL)"/dlq/retry"
+curl -s "$DLQ_URL" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT" \
+  -d '{"queue":"ingest","max":5}' | jq
+```
+
+#### 13.5 Audit JSONL quick-inspect helpers
+JSONL files are partitioned like: `tenantId=<id>/date=YYYY-MM-DD/hour=HH/<uuid>.jsonl`.
+
+```fish
+set AUDIT_BUCKET (aws cloudformation describe-stacks \
+  --stack-name EtL-Storage \
+  --query "Stacks[0].Outputs[?OutputKey=='AuditBucketName'].OutputValue" \
+  --output text)
+set DATE_UTC (date -u +%F)
+
+# List partition
+aws s3 ls "s3://$AUDIT_BUCKET/tenantId=demo/date=$DATE_UTC/" --recursive
+
+# Tail the newest JSONL (first few lines)
+set SAMPLE (aws s3 ls "s3://$AUDIT_BUCKET/tenantId=demo/date=$DATE_UTC/" --recursive | sort -k1,1 -k2,2 | tail -n1 | awk '{print $4}')
+aws s3 cp "s3://$AUDIT_BUCKET/$SAMPLE" /tmp/audit.jsonl
+sed -n '1,10p' /tmp/audit.jsonl
+```
+
+#### 13.6 Metrics namespace (etl.health) smoke check
+Confirms custom business metrics are flowing (Powertools for Lambda).
+```fish
+aws cloudwatch list-metrics --namespace etl.health \
+  --query "Metrics[].MetricName" --output text
+```
+>If empty, generate traffic (ingest/reprocess) and re-run. You should see names like `normalize_count`, `dto_invalid_count`, `fhir_invalid_count`, `persist_error_count`, etc.
+
+#### 13.7 End-to-end demo recipe (HL7v2)
+```fish
+# 0) Vars
+set DATE (date -u +%F)
+set RAW_BUCKET (aws cloudformation describe-stacks --stack-name EtL-Storage --query "Stacks[0].Outputs[?OutputKey=='RawLandingBucketName'].OutputValue" --output text)
+set API_URL (aws cloudformation describe-stacks --stack-name EtL-ReprocessApi --query "Stacks[0].Outputs[?OutputKey=='ReprocessApiUrl'].OutputValue" --output text)
+set TABLE (aws cloudformation describe-stacks --stack-name EtL-Data --query "Stacks[0].Outputs[?OutputKey=='TableName'].OutputValue" --output text)
+
+# 1) Upload HL7
+aws s3 cp schema/examples/hl7/minimal.hl7 s3://$RAW_BUCKET/raw/demo/$DATE/minimal.hl7
+
+# 2) Reprocess
+curl -s (string replace -r '/?$' '' $API_URL)"/reprocess" \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"tenantId":"demo","bucket":"'$RAW_BUCKET'","key":"raw/demo/'$DATE'/minimal.hl7"}' | jq
+
+# 3) Verify observations
+aws dynamodb query \
+  --table-name $TABLE \
+  --key-condition-expression "PK = :pk AND begins_with(SK, :sk)" \
+  --expression-attribute-values '{":pk":{"S":"TENANT#demo"},":sk":{"S":"ENTITY#observation#"}}' \
+  --projection-expression "PK, SK, entityType, entityId, attributes, updatedAt, version" \
+  --output json | jq
+
+# 4) Health snapshot
+curl -s (string replace -r '/?$' '' $API_URL)"/health?tenantId=demo" \
+  -H "Authorization: Bearer $JWT" | jq
+```
+
+#### 13.8 Appendix — ingest.raw.v1 envelope notes (Normalize accepts)
+Your Normalize step now accepts three shapes and branches accordingly:
+```json
+// A) Generic JSON (HTTP ingest)
+{
+  "schema": "ingest.raw.v1",
+  "metadata": { "tenantId": "demo", "source": "api", "idempotencyKey": "..." },
+  "payload": { "studyInstanceUID": "1.2.3.4", "patientId": "P001", "modality": "CR" }
+}
+```
+```json
+// B) CSV file reference (Reprocess)
+{
+  "schema": "ingest.raw.v1",
+  "metadata": {
+    "tenantId": "demo",
+    "source": "reprocess",
+    "idempotencyKey": "reproc:raw/demo/YYYY-MM-DD/labx.csv"
+  },
+  "payload": {
+    "s3": { "bucket": "<raw-bucket>", "key": "raw/demo/YYYY-MM-DD/labx.csv" },
+    "contentType": "text/csv"
+  }
+}
+```
+```json
+// C) HL7v2 file reference (Reprocess)
+{
+  "schema": "ingest.raw.v1",
+  "metadata": {
+    "tenantId": "demo",
+    "source": "reprocess",
+    "idempotencyKey": "reproc:raw/demo/YYYY-MM-DD/minimal.hl7"
+  },
+  "payload": {
+    "s3": { "bucket": "<raw-bucket>", "key": "raw/demo/YYYY-MM-DD/minimal.hl7" },
+    "contentType": "application/hl7-v2"
+  }
+}
+```
+
+
+### 14. Extra: sanity checks you’ll actually use
   ``` fish
 # Which Lambda consumes the normalized queue?
 aws lambda list-event-source-mappings \
@@ -804,7 +1105,7 @@ aws logs filter-log-events \
   --limit 20 | jq -r '.events[].message'
   ```
 
-### 14. Clean up (local queues while testing)
+### 15. Clean up (local queues while testing)
 If you’ve spammed test messages and want a clean slate:
   ``` fish
 # Drain NQURL (normalized) safely — repeat an appropriate number of times or script it
@@ -817,14 +1118,3 @@ for i in (seq 1 10)
 end
 
   ```
-
-## ✅ Roadmap
-
-- [x] Bootstrap repo with CDK & pnpm
-- [x] Deploy Storage + Data + Messaging stacks
-- [x] Implement Ingest Lambda (API Gateway → S3 + SQS)
-- [x] Add Normalization Lambda (validate → DTOs → SQS)
-- [x] Add Persistence Lambda (idempotent DDB writes → event emit)
-- [x] AppSync GraphQL API for queries
-- [ ] Alarms & Observability (CloudWatch)
-- [ ] Optional Search integration (OpenSearch)
