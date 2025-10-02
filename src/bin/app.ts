@@ -44,6 +44,7 @@ const normalize = new NormalizeStack(app, 'EtL-Normalize', {
     ingestQueue: messaging.ingestQueue,
     normalizedQueue: messaging.normalizedQueue,
     auditFn: audit.auditFn,
+    rawBucket: storage.rawLanding
 });
 
 const persist = new PersistStack(app, 'EtL-Persist', {
