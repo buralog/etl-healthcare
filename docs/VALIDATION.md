@@ -53,8 +53,8 @@ Think of this as a **smoke test** + **developer reference**:
     - [13.5 Metrics namespace (etl.health) smoke check](#135-metrics-namespace-etlhealth-smoke-check)
     - [13.6 End-to-end demo recipe (HL7v2)](#136-end-to-end-demo-recipe-hl7v2)
     - [13.7 ingest.raw.v1 envelope notes (Normalize accepts)](#137-appendix--ingestrawv1-envelope-notes-normalize-accepts)
-  - [14. Extra: sanity checks you’ll actually use](#11-extra-sanity-checks-youll-actually-use)
-  - [15. Clean up (local queues while testing)](#12-clean-up-local-queues-while-testing)
+  - [14. Extra: sanity checks you’ll actually use](#14-extra-sanity-checks-youll-actually-use)
+  - [15. Clean up (local queues while testing)](#15-clean-up-local-queues-while-testing)
 
 ---
 
@@ -578,8 +578,6 @@ Wait a few minutes for the alarm to return to `OK`.
 - **Automated alarms** for DLQs, error rates, and latency.  
 - **A unified dashboard** for quick status checks.  
 - End-to-end observability: logs, metrics, traces, and alarms.
-
-This completes the **Observability stage** of the ETL pipeline.
 
 
 ### 13. Adapters: HL7v2 + CSV → Normalize → Persist  
