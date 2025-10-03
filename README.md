@@ -1,4 +1,4 @@
-# ETL Healthcare Pipeline (Serverless, AWS, TypeScript)
+# ETL Healthcare Pipeline
 
 This project is a **serverless ETL pipeline** built on AWS and TypeScript.  
 It demonstrates how to ingest healthcare data (HL7, FHIR, CSV, JSON), normalize it into a clean model, persist it to DynamoDB, and expose query APIs — all while following **microservice-ready boundaries**.
@@ -20,20 +20,16 @@ It is designed to highlight both *practical data processing* and *modern archite
 The goal: show how to build a **modular, production-ready ETL pipeline for healthcare data**, balancing **real-world data handling** with **clean architecture**.
 
 ## Table of content
-
-<details>
-<summary>Expand contents</summary>
-
 - [Architecture Overview](#-architecture-overview)
 - [Repository Layout](#-repository-layout)
 - [Contracts](#-contracts)
   - [Why we use contracts](#why-we-use-contracts)
-  - [Folder layout](#folder-layout)
+  - [Folder layout (contracts + validation)](#folder-layout-contracts--validation))
   - [Current contracts](#current-contracts)
-  - [Why this layout matters](#why-this-layout-matters)
+  - [How validation layers fit together](#how-validation-layers-fit-together)
+  - [Why this split matters](#why-this-split-matters)
 - [Quickstart](#-quickstart)
 - [Validate the Pipeline](#-validate-the-pipeline)
-</details>
 
 ## 🚀 Architecture Overview
 
@@ -79,7 +75,7 @@ The goal: show how to build a **modular, production-ready ETL pipeline for healt
      <summary>View the repo layout</summary>
 
 
-```
+```pgsql
 .
 ├── bruno
 │   └── etl-healthcare-tests.json
@@ -216,39 +212,45 @@ The goal: show how to build a **modular, production-ready ETL pipeline for healt
 
 ## 📜 Contracts
 
-In this project, **contracts** are **formal JSON Schemas** that define the structure of messages exchanged between pipeline stages.  
-Instead of sending ad-hoc JSON, we enforce strict contracts so every service knows exactly what to expect.
+In this project, **contracts** are **formal JSON Schemas** that define the structure of messages exchanged between pipeline stages.
+Instead of ad-hoc JSON, we enforce strict contracts so every service knows exactly what to expect.
 
 #### Why we use contracts
 
-- **Consistency** – the same event type always has the same shape.  
-- **Validation** – payloads can be checked against a schema before being processed.  
-- **Versioning** – breaking changes go into a new schema (`.v2.json`), so old services continue working.  
-- **Type safety** – schemas are compiled into `.d.ts` definitions for TypeScript services.  
-- **Compliance** – in healthcare, strict schemas reduce risk of malformed or incomplete records.
+- **Consistency** – the same event type always has the same shape.
+- **Validation** – payloads are checked against a schema before processing.
+- **Versioning** – breaking changes go to a new schema (`.v2.json`) so older services keep working.
+- **Type safety** – schemas compile to `.d.ts` definitions for TypeScript services.
+- **Compliance** – in healthcare, strict schemas reduce the risk of malformed or incomplete records.
 
 
-#### Folder layout
+#### Folder layout (contracts + validation)
 
-```
-libs/contracts
-├── schemas/              # Raw JSON Schemas (registry-ready)
-│   ├── etl.normalized.v1.json
-│   ├── etl.persisted.v1.json
-│   └── ingest.raw.v1.json
-└── src/
-    ├── dto/              # DTO-level schemas for sub-entities
-    │   ├── normalized.observation.v1.json
-    │   └── normalized.patient.v1.json
-    ├── events/           # Event-level schemas (mirrors /schemas)
-    │   ├── etl.normalized.v1.json
-    │   ├── etl.persisted.v1.json
-    │   └── ingest.raw.v1.json
-    ├── types.ts          # Generated TypeScript types
-    │   ├── etl.normalized.v1.d.ts
-    │   ├── etl.persisted.v1.d.ts
-    │   └── ingest.raw.v1.d.ts
-    └── validate.ts       # Shared validation helpers
+```pgsql
+libs/
+├── contracts/
+│   ├── schemas/                     # Canonical, registry-ready JSON Schemas
+│   │   ├── etl.normalized.v1.json
+│   │   ├── etl.persisted.v1.json
+│   │   ├── ingest.raw.v1.json
+│   │   └── fhir/
+│   │       └── Observation.r4.min.json   # Minimal FHIR R4 Observation schema (AJV)
+│   └── src/
+│       ├── dto/                     # DTO-level sub-schemas (embedded by events)
+│       │   ├── normalized.observation.v1.json
+│       │   └── normalized.patient.v1.json
+│       ├── events/                  # Event-level schemas (mirrors /schemas)
+│       │   ├── etl.normalized.v1.json
+│       │   ├── etl.persisted.v1.json
+│       │   └── ingest.raw.v1.json
+│       ├── types.ts                 # Barrel; generated .d.ts live alongside
+│       │   ├── etl.normalized.v1.d.ts
+│       │   ├── etl.persisted.v1.d.ts
+│       │   └── ingest.raw.v1.d.ts
+│       └── validate.ts              # Schema lookup + shared AJV helpers
+└── validation/
+    ├── dto.ts                       # Zod validators for internal DTOs
+    └── fhir-ajv.ts                  # AJV validator compiled from FHIR schema
 ```
 
 - **`schemas/`** → canonical JSON Schemas (synced to the Schema Registry S3 bucket).  
@@ -256,35 +258,33 @@ libs/contracts
 - **`src/dto/`** → smaller sub-schemas (patients, observations) that plug into larger contracts.  
 - **`src/types.ts`** → TypeScript bindings auto-generated from schemas for type-safe coding.  
 - **`src/validate.ts`** → utility functions to validate payloads against the right schema.
+- **`contracts/schemas/`** → canonical JSON Schemas (easy to sync to a registry/S3). Includes a **minimal FHIR R4 Observation schema** used to validate mapped FHIR output.
+- **`contracts/src/events/`** → runtime copies of the event schemas for services.
+- **`contracts/src/dto/`** → reusable sub-schemas (patients, observations) embedded by events.
+- **`contracts/src/types.ts`** → barrel + generated typings (`.d.ts`) for type-safe code.
+- **`contracts/src/validate.ts`** → shared helpers to load/validate against the correct event schema.
+- **`validation/dto.ts`** → Zod validation for internal DTOs (pre-mapping).
+- **`validation/fhir-ajv.ts`** → AJV validator built from `schemas/fhir/Observation.r4.min.json`.
 
 #### Current Contracts
 
-- **`ingest.raw.v1.json`**  
-  Shape of raw payloads ingested via the HTTP API. Contains standard metadata (tenant, source, idempotency key) + raw payload.
+- `ingest.raw.v1.json` — shape of raw payloads ingested via HTTP/API (tenant, source, idempotency key + raw blob).
+- `etl.normalized.v1.json` — canonical normalized event emitted by the Normalizer; unifies all sources.
+- `etl.persisted.v1.json` — commit-log event after a successful DynamoDB write (for audit/fan-out).
+- `normalized.observation.v1.json` — normalized **Observation** DTO structure (labs, vitals, etc.).
+- `normalized.patient.v1.json` — normalized **Patient** DTO structure (IDs, demographics).
+- `fhir/Observation.r4.min.json` — **FHIR R4 Observation** (pruned/minimal) used to validate the mapped FHIR resource.
 
-- **`etl.normalized.v1.json`**  
-  Canonical normalized shape emitted by the Normalizer. Guarantees all downstream services see a unified event format.
+#### How validation layers fit together
 
-- **`etl.persisted.v1.json`**  
-  Emitted after a successful DynamoDB write. Serves as a commit log for auditing or fanning out to other services.
+1. **DTO layer (Zod)** — `validation/dto.ts` ensures normalized DTOs are well-formed.
+2. **Event layer (AJV)** — `contracts/src/validate.ts` checks messages against `ingest.raw.v1`, `etl.normalized.v1`, `etl.persisted.v1`.
+3. **FHIR layer (AJV)** — `validation/fhir-ajv.ts` validates the produced **FHIR Observation** against the minimal R4 schema.
 
-- **`normalized.observation.v1.json`**  
-  Defines the structure of normalized **Observation** entities (labs, vitals, etc).
-
-- **`normalized.patient.v1.json`**  
-  Defines the structure of normalized **Patient** entities (IDs, demographics).
-
-
-#### Why this layout matters
-
-This split ensures we get the best of both worlds:
-
-- **Registry & sharing** → top-level `/schemas` is easy to sync to S3 or publish.  
-- **Runtime & dev tooling** → `/src` gives validators and TypeScript types directly to services.  
-- **Fine-grained reuse** → DTO schemas (patients, observations) can be embedded across multiple event schemas.
-
-The result: every stage in the ETL pipeline has **clear, enforceable contracts** for what it consumes and produces.  
-That makes the system modular, testable, and safer to evolve over time.
+#### Why this split matters
+- **Registry & sharing** → `contracts/schemas` is clean to publish or sync.
+- **Runtime & tooling** → `contracts/src` gives validators + types directly to services.
+- **Separation of concerns** → DTO validation (Zod) vs. Event validation (JSON Schema/AJV) vs. FHIR conformance (AJV) stay independent, making evolution safer.
 
 
 ## ⚡ Quickstart
