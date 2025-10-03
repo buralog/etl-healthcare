@@ -288,24 +288,42 @@ That makes the system modular, testable, and safer to evolve over time.
 
 
 ## ⚡ Quickstart
+  1. **Clone & install**
+     ```bash
+     git clone https://github.com/buralog/etl-healthcare.git
+     cd etl-healthcare
+     pnpm install
+     ```
+   2. **Register your AWS Account for CDK (Bootstrap)**
 
-1. **Clone & install**
-   ```bash
-   git clone https://github.com/buralog/etl-healthcare.git
-   cd etl-healthcare
-   pnpm install
-   ```
+      Before deploying, CDK must set up your AWS account/region with a **CDK Toolkit stack**  
+      (this creates the S3 bucket + IAM roles used internally by CDK).
 
-2. **Bootstrap AWS CDK**
-   ```bash
-   pnpm run bootstrap
-   ```
+      #### Option 1: Non-interactive (explicit account/region)
+      If you already know your account ID and region, run:
 
-3. **Deploy core stacks**
-   ```bash
-   pnpm run build
-   pnpm run deploy:dev
-   ```
+      ```bash
+          pnpm run bootstrap -- aws://<ACCOUNT_ID>/<REGION>
+          # Example
+          pnpm run bootstrap -- aws://123456789012/eu-central-1
+      ```
+      #### Option 2: Interactive
+
+       If you prefer to be prompted for values:
+        > pnpm run bootstrap
+
+      This will ask:
+        - Which account ID to use
+        - Which region to use
+        - Whether to create the bootstrap stack
+     
+      After confirmation, CDK provisions the bootstrap resources in your account.
+
+  3. **Deploy core stacks**
+     ```bash
+     pnpm run build
+     pnpm run deploy:dev
+     ```
 
 4. **Check resources**
    ```bash
